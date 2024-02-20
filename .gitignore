@@ -30,3 +30,12 @@
 *.exe
 *.out
 *.app
+
+*.obj
+*.o
+__pycache__/
+cmake-build-debug/
+.idea/
+
+server/node_modules/
+server/mydatabase.db
