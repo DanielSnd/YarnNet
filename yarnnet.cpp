@@ -1,6 +1,8 @@
 #include "yarnnet.h"
 
 #include "core/config/project_settings.h"
+#include "core/crypto/crypto_core.h"
+#include "core/io/marshalls.h"
 #include "core/object/script_language.h"
 
 void YarnNet::_bind_methods() {
@@ -24,28 +26,31 @@ void YarnNet::_bind_methods() {
     BIND_ENUM_CONSTANT(MESSAGESANDPING);
     BIND_ENUM_CONSTANT(ALL);
 
+    ADD_SIGNAL(MethodInfo("room_connection_result", PropertyInfo(Variant::STRING, "room_id"),PropertyInfo(Variant::BOOL, "result")));
+    ADD_SIGNAL(MethodInfo("room_connected", PropertyInfo(Variant::INT, "id")));
+    ADD_SIGNAL(MethodInfo("room_disconnected", PropertyInfo(Variant::INT, "id")));
     ADD_SIGNAL(MethodInfo("engine_status_changed", PropertyInfo(Variant::INT, "status")));
     ADD_SIGNAL(MethodInfo("status_changed", PropertyInfo(Variant::INT, "status")));
-    ADD_SIGNAL(MethodInfo("engine_connected", PropertyInfo(Variant::STRING, "sid")));
+    ADD_SIGNAL(MethodInfo("engine_connection_result", PropertyInfo(Variant::STRING, "sid"), PropertyInfo(Variant::BOOL, "result")));
     ADD_SIGNAL(MethodInfo("engine_disconnected", PropertyInfo(Variant::INT, "code"),PropertyInfo(Variant::STRING, "reason")));
     ADD_SIGNAL(MethodInfo("engine_message", PropertyInfo(Variant::STRING, "payload")));
     ADD_SIGNAL(MethodInfo("room_created", PropertyInfo(Variant::STRING, "new_room_id")));
-    ADD_SIGNAL(MethodInfo("room_joined", PropertyInfo(Variant::STRING, "new_room_id")));
+    ADD_SIGNAL(MethodInfo("room_players", PropertyInfo(Variant::ARRAY, "players")));
+    ADD_SIGNAL(MethodInfo("room_joined", PropertyInfo(Variant::STRING, "new_room_id"), PropertyInfo(Variant::STRING, "new_room_host_id")));
     ADD_SIGNAL(MethodInfo("room_error", PropertyInfo(Variant::STRING, "returned_error")));
     ADD_SIGNAL(MethodInfo("player_joined", PropertyInfo(Variant::STRING, "player_sid")));
     ADD_SIGNAL(MethodInfo("player_left", PropertyInfo(Variant::STRING, "player_sid")));
     ADD_SIGNAL(MethodInfo("host_migration", PropertyInfo(Variant::STRING, "new_host_sid")));
 
-    ADD_SIGNAL(MethodInfo("connected", PropertyInfo(Variant::OBJECT, "payload"), PropertyInfo(Variant::STRING, "name_space"), PropertyInfo(Variant::BOOL, "error")));
+    ADD_SIGNAL(MethodInfo("connected", PropertyInfo(Variant::STRING, "name_space"), PropertyInfo(Variant::BOOL, "result")));
     ADD_SIGNAL(MethodInfo("disconnected", PropertyInfo(Variant::STRING, "name_space")));
     ADD_SIGNAL(MethodInfo("event", PropertyInfo(Variant::STRING, "event_name"),PropertyInfo(Variant::OBJECT, "payload"),PropertyInfo(Variant::STRING, "name_space")));
 
-    ADD_SIGNAL(MethodInfo("rpc_received", PropertyInfo(Variant::STRING, "sender"),PropertyInfo(Variant::INT, "netnode_id"),PropertyInfo(Variant::INT, "rpc_id"),PropertyInfo(Variant::OBJECT, "payload")));
-
-    // void YarnNet::on_rpc_event(const String &p_sender, const int &p_netnodeid, const int &p_rpc_id, Variant &p_data) {
     ClassDB::bind_method(D_METHOD("setup_node"), &YarnNet::setup_node);
     ClassDB::bind_method(D_METHOD("ynet_connect", "url"), &YarnNet::engineio_connect);
     ClassDB::bind_method(D_METHOD("ynet_disconnect"), &YarnNet::engineio_disconnect);
+
+    ClassDB::bind_method(D_METHOD("string_to_hash_id","str"), &YarnNet::string_to_hash_id);
 
     ClassDB::bind_method(D_METHOD("socketio_send_event", "event_name","data","name_space"), &YarnNet::socketio_send,DEFVAL(Variant{}),DEFVAL(""));
     ClassDB::bind_method(D_METHOD("socketio_connect", "name_space"), &YarnNet::socketio_connect,DEFVAL(slash_namespace));
@@ -58,13 +63,45 @@ void YarnNet::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_debugging"), &YarnNet::get_debugging);
     ADD_PROPERTY(PropertyInfo(Variant::INT, "debugging", PROPERTY_HINT_ENUM, "None,MostMessages,MesssagesAndPings,All"), "set_debugging", "get_debugging");
 
+    ClassDB::bind_method(D_METHOD("set_is_host", "status"), &YarnNet::set_is_host);
+    ClassDB::bind_method(D_METHOD("get_is_host"), &YarnNet::get_is_host);
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "is_host"), "set_is_host", "get_is_host");
+
     ClassDB::bind_method(D_METHOD("set_offline_mode", "status"), &YarnNet::set_offline_mode);
     ClassDB::bind_method(D_METHOD("get_offline_mode"), &YarnNet::get_offline_mode);
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "offline_mode"), "set_offline_mode", "get_offline_mode");
 
+    ClassDB::bind_method(D_METHOD("set_hashed_socket_id", "status"), &YarnNet::set_hashed_sid);
+    ClassDB::bind_method(D_METHOD("get_hashed_socket_id"), &YarnNet::get_hashed_sid);
+    ADD_PROPERTY(PropertyInfo(Variant::INT, "hashed_socket_id"), "set_hashed_socket_id", "get_hashed_socket_id");
+
+    ClassDB::bind_method(D_METHOD("set_real_hashed_socket_id", "status"), &YarnNet::set_real_hashed_sid);
+    ClassDB::bind_method(D_METHOD("get_real_hashed_socket_id"), &YarnNet::get_real_hashed_sid);
+    ADD_PROPERTY(PropertyInfo(Variant::INT, "real_hashed_socket_id"), "set_real_hashed_socket_id", "get_real_hashed_socket_id");
+
     ClassDB::bind_method(D_METHOD("set_last_used_id", "id"), &YarnNet::set_last_used_id);
     ClassDB::bind_method(D_METHOD("get_last_used_id"), &YarnNet::get_last_used_id);
-    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "last_used_id"), "set_last_used_id", "get_last_used_id");
+    ADD_PROPERTY(PropertyInfo(Variant::INT, "last_used_id"), "set_last_used_id", "get_last_used_id");
+
+    ClassDB::bind_method(D_METHOD("set_socket_id", "id"), &YarnNet::set_sid);
+    ClassDB::bind_method(D_METHOD("get_socket_id"), &YarnNet::get_sid);
+    ADD_PROPERTY(PropertyInfo(Variant::STRING, "socket_id"), "set_socket_id", "get_socket_id");
+
+    ClassDB::bind_method(D_METHOD("set_room_id", "id"), &YarnNet::set_room_id);
+    ClassDB::bind_method(D_METHOD("get_room_id"), &YarnNet::get_room_id);
+    ADD_PROPERTY(PropertyInfo(Variant::STRING, "room_id"), "set_room_id", "get_room_id");
+
+    ClassDB::bind_method(D_METHOD("set_host_id", "id"), &YarnNet::set_host_id);
+    ClassDB::bind_method(D_METHOD("get_host_id"), &YarnNet::get_host_id);
+    ADD_PROPERTY(PropertyInfo(Variant::STRING, "host_id"), "set_host_id", "get_host_id");
+
+    ClassDB::bind_method(D_METHOD("set_room_id_without_protocol", "id"), &YarnNet::set_room_id_without_protocol);
+    ClassDB::bind_method(D_METHOD("get_room_id_without_protocol"), &YarnNet::get_room_id_without_protocol);
+    ADD_PROPERTY(PropertyInfo(Variant::STRING, "room_id_without_protocol"), "set_room_id_without_protocol", "get_room_id_without_protocol");
+
+    ClassDB::bind_method(D_METHOD("set_protocol", "protocol"), &YarnNet::set_protocol);
+    ClassDB::bind_method(D_METHOD("get_protocol"), &YarnNet::get_protocol);
+    ADD_PROPERTY(PropertyInfo(Variant::STRING, "protocol"), "set_protocol", "get_protocol");
 
     ClassDB::bind_method(D_METHOD("get_new_network_id"), &YarnNet::get_new_network_id);
 
@@ -72,36 +109,27 @@ void YarnNet::_bind_methods() {
     ClassDB::bind_method(D_METHOD("join_or_create_room", "roomcode"), &YarnNet::join_or_create_room);
     ClassDB::bind_method(D_METHOD("join_room", "roomcode"), &YarnNet::join_room);
     ClassDB::bind_method(D_METHOD("leave_room"), &YarnNet::leave_room);
-
-    ClassDB::bind_method(D_METHOD("get_rpc_configs","node"), &YarnNet::DebugRPCs);
-
 }
 
 void YarnNet::setup_node() {
     add_setting("YarnNet/settings/protocol", "change_me", Variant::Type::STRING);
-    //r_options->push_back(ImportOption(PropertyInfo(Variant::ARRAY, "fallbacks", PROPERTY_HINT_ARRAY_TYPE, PROPERTY_HINT_NODE_TYPE), Array()));
-    add_setting("YarnNet/settings/networked_nodes", TypedArray<NodePath>(), Variant::Type::ARRAY, PROPERTY_HINT_ARRAY_TYPE,
-            vformat("%s/%s:",Variant::Type::STRING, PROPERTY_HINT_FILE));
+    // //r_options->push_back(ImportOption(PropertyInfo(Variant::ARRAY, "fallbacks", PROPERTY_HINT_ARRAY_TYPE, PROPERTY_HINT_NODE_TYPE), Array()));
+    // add_setting("YarnNet/settings/networked_nodes", TypedArray<NodePath>(), Variant::Type::ARRAY, PROPERTY_HINT_ARRAY_TYPE,
+    //         vformat("%s/%s:",Variant::Type::STRING, PROPERTY_HINT_FILE));
 
     if(!already_setup_in_tree && SceneTree::get_singleton() != nullptr) {
         SceneTree::get_singleton()->get_root()->add_child(this);
         already_setup_in_tree=true;
-
-        protocol = GLOBAL_GET("YarnNet/settings/protocol");
     }
+
+    protocol = GLOBAL_GET("YarnNet/settings/protocol");
 }
 YarnNet* YarnNet::singleton = nullptr;
 
-Dictionary YarnNet::DebugRPCs(Node *node) {
-    Ref<Script> scr = node->get_script();
-    if(scr.is_valid()) {
-        return scr->get_rpc_config();
-    }
-    return node->get_node_rpc_config();
-}
-
 void YarnNet::engineio_disconnect() {
     if(client.is_valid()) {
+        clear_unhandled_packets();
+        connections_map.clear();
         client->close();
         emit_signal(SNAME("engine_disconnected"),client->get_close_code(),was_timeout ? "Timed out" : client->get_close_reason());
         was_timeout=false;
@@ -183,7 +211,7 @@ void YarnNet::_notification(int p_what) {
         case NOTIFICATION_EXIT_TREE: {
             if(status == STATE_OPEN) {
                 if(!offline_mode) {
-                    engineio_send_packet_type(EngineIOPacketType::close);
+                    engineio_send_packet_charstring(&close_cs);
                     client->close();
                     set_current_state(STATE_CLOSED);
                 }
@@ -198,7 +226,7 @@ void YarnNet::_notification(int p_what) {
         case NOTIFICATION_WM_CLOSE_REQUEST: {
             if(status == STATE_OPEN) {
                 if(!offline_mode) {
-                    engineio_send_packet_type(EngineIOPacketType::close);
+                    engineio_send_packet_charstring(&close_cs);
                     client->close();
                     set_current_state(STATE_CLOSED);
                 }
@@ -242,16 +270,15 @@ bool YarnNet::engineio_decode_packet(const uint8_t* packet, int len){
             JSON json;
             ERR_FAIL_COND_V_MSG(json.parse(packet_payload) != OK, false, "[YarnNet] Malformed open message!");
             Dictionary params = json.get_data();
-            String key_sid = "sid";
-            String key_pingTimeout = "pingTimeout";
-            String key_pingInterval = "pingInterval";
             ERR_FAIL_COND_V_MSG(!params.has(key_sid) || !params.has(key_pingTimeout) || !params.has(key_pingInterval), false, "[YarnNet] Open message was missing one of the variables needed.");
             sid = params.get(key_sid,key_sid);
+            hashed_sid = string_to_hash_id(sid);
+            real_hashed_sid = hashed_sid;
             pingInterval = params.get(key_pingInterval,500);
             pingTimeout = params.get(key_pingTimeout,3000);
             set_current_state(State::STATE_OPEN);
-            if(debugging>0) print_line("[YarnNet] Connected to engine.io, SID ",sid," ping interval ",pingInterval, " ping timeout ",pingTimeout);
-            emit_signal(SNAME("engine_connected"),sid);
+            if(debugging>0) print_line("[YarnNet] Connected to engine.io, SID ",sid," hashed ",hashed_sid," ping interval ",pingInterval, " ping timeout ",pingTimeout);
+            emit_signal(SNAME("engine_connection_result"),sid,true);
             socketio_connect();
         }
             break;
@@ -261,7 +288,7 @@ bool YarnNet::engineio_decode_packet(const uint8_t* packet, int len){
             break;
         case ping: {
             if(debugging>1) print_line("[YarnNet] Received engine.IO ping package");
-            engineio_send_packet_type(pong);
+            engineio_send_packet_charstring(&pong_cs);
         }
             break;
         case pong: {
@@ -288,11 +315,13 @@ bool YarnNet::engineio_decode_packet(const uint8_t* packet, int len){
     return true;
 }
 
+Error YarnNet::engineio_send_packet_charstring(const CharString *cs) {
+    return client->send((const uint8_t *)cs->ptr(), cs->length(), WebSocketPeer::WRITE_MODE_TEXT);
+}
 Error YarnNet::engineio_send_packet_type(const EngineIOPacketType packet_type) {
     const CharString cs = vformat("%d",packet_type).utf8();
     return client->send((const uint8_t *)cs.ptr(), cs.length(), WebSocketPeer::WRITE_MODE_TEXT);
 }
-
 
 Error YarnNet::engineio_send_packet_binary(EngineIOPacketType packet_type, PackedByteArray &p_message) {
     p_message.insert(0,static_cast<uint8_t>(packet_type));
@@ -317,7 +346,7 @@ Error YarnNet::socketio_send_packet_binary(SocketIOPacketType packet_type, Packe
 Error YarnNet::socketio_send_packet_text(SocketIOPacketType packet_type, Variant p_text, String name_space) {
     String _payload = vformat("%d",packet_type);
     if (!name_space.is_empty() && name_space != slash_namespace) {
-        _payload += vformat("%s,",name_space);
+        _payload += vformat("/%s,",name_space);
     }
     const auto varianttype = p_text.get_type();
     if (varianttype != Variant::Type::NIL) {
@@ -328,10 +357,16 @@ Error YarnNet::socketio_send_packet_text(SocketIOPacketType packet_type, Variant
         }
     }
     const CharString cs = vformat("%d%s",EngineIOPacketType::message,_payload).utf8();
+    //WARN_PRINT(vformat("Sending message %s",cs));
     return client->send((const uint8_t *)cs.ptr(), cs.length(), WebSocketPeer::WRITE_MODE_TEXT);
 }
 
 Error YarnNet::socketio_send(String event_name, Variant _data, String name_space) {
+    if (_data.get_type() == Variant::Type::ARRAY) {
+        Array payload = _data;
+        payload.push_front(event_name);
+        return socketio_send_packet_text(EVENT,payload,name_space);
+    }
     Array payload;
     payload.append(event_name);
     if (_data.get_type() != Variant::Type::NIL)
@@ -351,7 +386,8 @@ void YarnNet::socketio_disconnect(String name_space) {
 bool YarnNet::socketio_parse_packet(String& payload) {
     auto packetType = (EngineIOPacketType)payload.substr(0,1).to_int();
     payload = payload.substr(1);
-
+    if(debugging == ALL)
+        print_line(vformat("[YarnNet %s] PAYLOAD RECEIVED ",sid),payload);
     auto name_space= slash_namespace;
 
     auto regex = RegEx::create_from_string("(\\d+)-");
@@ -385,38 +421,62 @@ bool YarnNet::socketio_parse_packet(String& payload) {
         ERR_FAIL_COND_V_MSG(json.parse(payload) != OK, false, vformat("[YarnNet] Malformed socketio event %d namespace: %s",packetType,name_space));
         _data = json.get_data();
     }
+    if(debugging == ALL)
+        print_line("[YarnNet] Received socketio event ",packetType," data parsed: ",_data," payload parsed: ",payload);
     switch (packetType) {
         case SocketIOPacketType::CONNECT: {
-            emit_signal(SNAME("connected"),name_space,false);
+            Dictionary data_dict = _data;
+            if (data_dict.has("sid")) {
+                print_line("Before my sid was (set by engine io) ",sid," now it will be ",data_dict["sid"]);
+                sid = data_dict["sid"];
+                hashed_sid = static_cast<int>(string_to_hash_id(sid));
+                real_hashed_sid = hashed_sid;
+                emit_signal(SNAME("connected"),name_space,true);
+            } else {
+                emit_signal(SNAME("connected"),name_space,false);
+                socketio_disconnect();
+            }
         }
             break;
         case SocketIOPacketType::CONNECT_ERROR:
-            {emit_signal(SNAME("connected"),name_space,true);}
+            {emit_signal(SNAME("connected"),name_space,false);}
             break;
         case SocketIOPacketType::EVENT: {
             ERR_FAIL_COND_V_MSG(_data.is_array() != true, false, vformat("[YarnNet] Invalid socketio event format %s",_data.to_json_string()));
-            Array typedArray = _data;
-            const String event_name = typedArray[0];
+            Array array = _data;
+            const String event_name = array[0];
             const auto event_hash = event_name.hash();
-            const Variant event_payload = typedArray.size() > 1 ? typedArray[1] : Variant{};
+            array.remove_at(0);
+            Variant event_payload;
+            if (array.size() == 1) {
+                event_payload = array[0];
+            } else if (array.size() == 0) {
+                event_payload = Variant{};
+            } else {
+                event_payload = array;
+            }
             if (event_hash == newhost_event) {
                 on_host_migrated(event_payload);
             } else if (event_hash == roomcreated_event) {
                 on_room_created(event_payload);
             } else if (event_hash == roomjoined_event) {
-                on_room_joined(event_payload);
+                on_room_joined(array[0], array[1]);
+            } else if (event_hash == roomplayers_event) {
+                on_room_players(array[0]);
             } else if (event_hash == roomerror_event) {
                 on_room_error(event_payload);
+            }else if (event_hash == leftroom) {
+                on_left_room();
             } else if (event_hash == playerjoin_event) {
                 on_player_join(event_payload);
             } else if (event_hash == playerleft_event) {
                 on_player_left(event_payload);
-            } else if (event_hash == rpc_event) {
-                print_line("[YarnNet] Need to implement rpc event... This is the Payload received:", event_payload);
+            } else if (event_hash == pkt) {
+                on_received_pkt(array[0],array[1]);
             }
             emit_signal(SNAME("event"),event_name,event_payload,name_space);
             if(debugging >0) {
-                print_line(vformat("[YarnNet] Socket IO Event Received [%s] data: [%s]",event_name,event_payload));
+                print_line(vformat("[YarnNet %s] Socket IO Event Received = %s = data: = %s =",sid,event_name,event_payload));
             }
         }
             break;
@@ -465,6 +525,7 @@ void YarnNet::do_process() {
         const float current_time = OS::get_singleton()->get_ticks_msec() * 0.001f;
         if (current_time > tick_started_connecting + 6.0f) {
             was_timeout=true;
+            emit_signal(SNAME("engine_connection_result"),"TIMEOUT",false);
             engineio_disconnect();
             return;
         }
@@ -494,7 +555,7 @@ int YarnNet::get_max_queued_packets() {
 }
 
 Error YarnNet::create_room() {
-    socketio_send("requestroom");
+    socketio_send("requestroom",protocol);
     return OK;
 }
 
@@ -509,13 +570,25 @@ Error YarnNet::join_room(const String &join_room) {
 
 Error YarnNet::leave_room() {
     socketio_send("leaveroom");
+    clear_unhandled_packets();
+    room_id = "";
     return OK;
 }
 
 void YarnNet::on_room_created(const String &p_new_room_id) {
     if(debugging > 0)
         print_line("room_created ",p_new_room_id);
+    host_id = sid;
+    host_id_hashed = string_to_hash_id(sid);
+    is_host = host_id == sid;
+    if (is_host) {
+        hashed_sid = 1;
+    }
+    room_id = p_new_room_id;
+    connections_map[sid] = 1;
     emit_signal(SNAME("room_created"),p_new_room_id);
+    emit_signal(SNAME("room_connected"),hashed_sid);
+    emit_signal(SNAME("room_connection_result"),p_new_room_id,true);
 }
 
 // ADD_SIGNAL(MethodInfo("room_created", PropertyInfo(Variant::STRING, "new_room_id")));
@@ -525,40 +598,104 @@ void YarnNet::on_room_created(const String &p_new_room_id) {
 // ADD_SIGNAL(MethodInfo("player_left", PropertyInfo(Variant::STRING, "player_sid")));
 // ADD_SIGNAL(MethodInfo("host_migration", PropertyInfo(Variant::STRING, "new_host_sid")));
 
-void YarnNet::on_room_joined(const String &p_new_room_id) {
+void YarnNet::on_room_joined(const String &p_new_room_id,const String &p_host_id) {
     if(debugging > 0)
-        print_line("on_room_joined ",p_new_room_id);
-    emit_signal(SNAME("room_joined"),p_new_room_id);
+        print_line("on_room_joined ",p_new_room_id," host ",p_host_id," ",string_to_hash_id(p_host_id));
+    host_id = p_host_id;
+    host_id_hashed = string_to_hash_id(p_host_id);
+    is_host = host_id == sid;
+    if (is_host) {
+        hashed_sid = 1;
+    }
+    room_id = p_new_room_id;
+    connections_map[sid] = hashed_sid;
+    emit_signal(SNAME("room_joined"),p_new_room_id,p_host_id);
+    emit_signal(SNAME("room_connected"),hashed_sid);
+    emit_signal(SNAME("room_connection_result"),p_new_room_id,true);
 }
 
 void YarnNet::on_room_error(const String &p_room_error) {
     if(debugging > 0)
         print_line("on_room_error ",p_room_error);
     emit_signal(SNAME("room_error"),p_room_error);
+    emit_signal(SNAME("room_connection_result"),p_room_error,false);
+    room_id = "";
+}
+
+void YarnNet::on_left_room() {
+    if(debugging > 0)
+        print_line("on_left_room ");
+    emit_signal(SNAME("room_disconnected"),hashed_sid);
+    room_id = "";
+}
+
+void YarnNet::on_room_players(const Array &players_array) {
+    if(debugging > 0)
+        print_line(vformat("on_room_players %s",players_array));
+    for (int i = 0; i < players_array.size(); i++)
+        if (const auto& _player = players_array[i]; _player.get_type() == Variant::STRING && !connections_map.has(_player))
+            on_player_join(_player);
+
+    emit_signal(SNAME("room_players"),players_array);
 }
 
 void YarnNet::on_player_join(const String &p_player) {
     if(debugging > 0)
-        print_line("on_player_join ",p_player);
+        print_line("on_player_join ",p_player," ",string_to_hash_id(p_player));
+    connections_map[p_player] = string_to_hash_id(p_player);
     emit_signal(SNAME("player_joined"),p_player);
+}
+
+void YarnNet::on_received_pkt(const String &received_from, const String &pkt_content) {
+    if(debugging > 0)
+        print_line("on_received_pkt from ",received_from," content: ",pkt_content);
+
+    int strlen = pkt_content.length();
+	CharString cstr = pkt_content.ascii();
+
+	size_t arr_len = 0;
+	Vector<uint8_t> buf;
+	{
+		buf.resize(strlen / 4 * 3 + 1);
+		uint8_t *w = buf.ptrw();
+		Error result = CryptoCore::b64_decode(&w[0], buf.size(), &arr_len, (unsigned char *)cstr.get_data(), strlen);
+        if (result != OK) {
+            ERR_PRINT(vformat("Failed to decode packet %s",pkt_content));
+            return;
+        }
+	}
+	buf.resize(arr_len);
+
+    Packet packet;
+    packet.data = (uint8_t *)memalloc(arr_len);
+    memcpy(packet.data, buf.ptrw(), arr_len);
+    packet.size = arr_len;
+    packet.source = connections_map.has(received_from) ? static_cast<int>(connections_map[received_from]) : static_cast<int>(string_to_hash_id(received_from));
+    unhandled_packets.push_back(packet);
 }
 
 void YarnNet::on_player_left(const String &p_player) {
     if(debugging > 0)
         print_line("on_player_left ",p_player);
+    if (connections_map.has(p_player))
+        connections_map.erase(p_player);
     emit_signal(SNAME("player_left"),p_player);
 }
 
 void YarnNet::on_host_migrated(const String &p_new_host) {
     if(debugging > 0)
         print_line("on_host_migrated ",p_new_host);
+    host_id = p_new_host;
+    host_id_hashed = string_to_hash_id(p_new_host);
+    is_host = host_id == sid;
+    WARN_PRINT(vformat("HOST MIGRATION UNDERWAY NEW HOST IS %s I AM %s ... am I new host? %s",p_new_host,sid,host_id == sid));
+    if (is_host) {
+        hashed_sid = 1;
+        connections_map[p_new_host] = 1;
+    } else {
+        connections_map[p_new_host] = 1;
+    }
     emit_signal(SNAME("host_migration"),p_new_host);
-}
-
-void YarnNet::on_rpc_event(const String &p_sender, const int &p_netnodeid, const int &p_rpc_id, Variant &p_data) {
-    if(debugging > 0)
-        print_line("on_rpc_event sender:",p_sender," p_netnodeid:",p_netnodeid," p_rpc_id:",p_rpc_id," data:",p_data);
-    emit_signal(SNAME("rpc_received"),p_sender,p_netnodeid,p_rpc_id,p_data);
 }
 
 YarnNet * YarnNet::get_singleton() {
@@ -571,7 +708,17 @@ YarnNet::YarnNet() {
     call_deferred("setup_node");
 }
 
+void YarnNet::clear_unhandled_packets() {
+    for (Packet &E : unhandled_packets) {
+        memfree(E.data);
+        E.data = nullptr;
+    }
+    unhandled_packets.clear();
+}
+
 YarnNet::~YarnNet() {
+    clear_unhandled_packets();
+    connections_map.clear();
     if (singleton != nullptr && singleton == this) {
         singleton = nullptr;
     }

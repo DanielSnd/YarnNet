@@ -1,0 +1,8 @@
+YnetMultiplayerPeer
+https://docs.godotengine.org/en/stable/classes/class_multiplayerpeer.html#class-multiplayerpeer
+
+YnetPacketPeer
+https://docs.godotengine.org/en/stable/classes/class_packetpeer.html#class-packetpeer
+
+High level multiplayer
+https://docs.godotengine.org/en/stable/tutorials/networking/high_level_multiplayer.html#mid-level-abstraction
