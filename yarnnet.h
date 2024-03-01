@@ -10,8 +10,8 @@
 #include "scene/main/window.h"
 #include <cstring>
 
-class YarnNet : public Node {
-    GDCLASS(YarnNet, Node);
+class YNet : public Node {
+    GDCLASS(YNet, Node);
     
 protected:
     static void _bind_methods();
@@ -31,7 +31,7 @@ protected:
 
     void setup_node();
     bool already_setup_in_tree = false;
-    static YarnNet* singleton;
+    static YNet* singleton;
 
     void clear_unhandled_packets();
 
@@ -196,20 +196,21 @@ public:
             if (debugging >= 1) {
                 switch ((State)status) {
                     case STATE_CONNECTING:
-                        print_line("[YarnNet] Status is now: Connecting");
+                        print_line("[YNet] Status is now: Connecting");
                         break;
                     case STATE_OPEN:
-                        print_line("[YarnNet] Status is now: Connected");
+                        print_line("[YNet] Status is now: Connected");
                         break;
                     case STATE_CLOSING:
-                        print_line("[YarnNet] Status is now: Closing");
+                        print_line("[YNet] Status is now: Closing");
                         break;
                     case STATE_CLOSED:
-                        print_line("[YarnNet] Status is now: Closed");
+                        print_line("[YNet] Status is now: Closed");
                         break;
                     default: ;
                 }
             }
+            emit_signal("status_changed",val);
         }
     }
 
@@ -272,19 +273,19 @@ public:
         return hashv;
     }
 
-    static YarnNet* get_singleton();
-    YarnNet();
+    static YNet* get_singleton();
+    YNet();
 
-    ~YarnNet();
+    ~YNet();
 
     void add_setting(const String& name, const Variant& default_value, Variant::Type type,
             PropertyHint hint = PROPERTY_HINT_NONE, const String& hint_string = "",
             int usage = PROPERTY_USAGE_DEFAULT, bool restart_if_changed = false);
 };
 
-VARIANT_ENUM_CAST(YarnNet::EngineIOPacketType);
-VARIANT_ENUM_CAST(YarnNet::SocketIOPacketType);
-VARIANT_ENUM_CAST(YarnNet::DebuggingLevel);
-VARIANT_ENUM_CAST(YarnNet::WriteMode);
-VARIANT_ENUM_CAST(YarnNet::State);
+VARIANT_ENUM_CAST(YNet::EngineIOPacketType);
+VARIANT_ENUM_CAST(YNet::SocketIOPacketType);
+VARIANT_ENUM_CAST(YNet::DebuggingLevel);
+VARIANT_ENUM_CAST(YNet::WriteMode);
+VARIANT_ENUM_CAST(YNet::State);
 #endif

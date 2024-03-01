@@ -1,7 +1,7 @@
 #include "register_types.h"
 
 // This is your singleton reference.
-static YarnNet* YarnNetPtr;
+static YNet* YNetPtr;
 
 void initialize_yarnnet_module(ModuleInitializationLevel p_level) {
 #ifdef TOOLS_ENABLED
@@ -12,12 +12,12 @@ void initialize_yarnnet_module(ModuleInitializationLevel p_level) {
  	if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
  			return;
    }
- 	ClassDB::register_class<YarnNet>();
+ 	ClassDB::register_class<YNet>();
 	// Initialize your singleton.
-	YarnNetPtr = memnew(YarnNet);
+	YNetPtr = memnew(YNet);
 
 	// Bind your singleton.
-	Engine::get_singleton()->add_singleton(Engine::Singleton("YarnNet", YarnNet::get_singleton()));
+	Engine::get_singleton()->add_singleton(Engine::Singleton("YNet", YNet::get_singleton()));
 
 	ClassDB::register_class<YnetMultiplayerPeer>();
 }
@@ -26,10 +26,10 @@ void uninitialize_yarnnet_module(ModuleInitializationLevel p_level) {
  	if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
  			return;
    }
-	if (YarnNetPtr != nullptr) {
-		Engine::get_singleton()->remove_singleton("YarnNet");
-		memdelete(YarnNetPtr);
-		YarnNetPtr = nullptr;
+	if (YNetPtr != nullptr) {
+		Engine::get_singleton()->remove_singleton("YNet");
+		memdelete(YNetPtr);
+		YNetPtr = nullptr;
 	}
 
    // Nothing to do here in this example.

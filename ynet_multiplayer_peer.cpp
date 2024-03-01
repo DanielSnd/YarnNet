@@ -37,7 +37,7 @@ bool YnetMultiplayerPeer::is_server() const {
 }
 
 void YnetMultiplayerPeer::close() {
-    YarnNet::get_singleton()->engineio_disconnect();
+    YNet::get_singleton()->engineio_disconnect();
 }
 
 void YnetMultiplayerPeer::disconnect_peer(int p_peer_id, bool p_force) {
@@ -81,7 +81,7 @@ Error YnetMultiplayerPeer::put_packet(const uint8_t *p_buffer, int p_buffer_size
             ERR_FAIL_COND_V(!peers_map.has(target_peer), ERR_DOES_NOT_EXIST);
             // FIND PEER ID?
             Array packet_data;
-            packet_data.append(YarnNet::get_singleton()->room_id);
+            packet_data.append(YNet::get_singleton()->room_id);
             packet_data.append(peers_map[target_peer]);
             packet_data.append(stringified_packet);
             ynet->socketio_send("pkt2cid",packet_data);
@@ -89,7 +89,7 @@ Error YnetMultiplayerPeer::put_packet(const uint8_t *p_buffer, int p_buffer_size
         } else {
             // SEND TO ALL
             Array packet_data;
-            packet_data.append(YarnNet::get_singleton()->room_id);
+            packet_data.append(YNet::get_singleton()->room_id);
             packet_data.append(stringified_packet);
             ynet->socketio_send("pkt2clients",packet_data);
         }
@@ -114,16 +114,16 @@ int YnetMultiplayerPeer::get_transfer_channel() const {
 MultiplayerPeer::ConnectionStatus YnetMultiplayerPeer::get_connection_status() const {
     auto current_state = ynet->get_current_state();
     switch (current_state) {
-        case YarnNet::STATE_CONNECTING:
+        case YNet::STATE_CONNECTING:
             return CONNECTION_CONNECTING;
             break;
-        case YarnNet::STATE_OPEN:
+        case YNet::STATE_OPEN:
             return CONNECTION_CONNECTED;
             break;
-        case YarnNet::STATE_CLOSING:
+        case YNet::STATE_CLOSING:
             return CONNECTION_DISCONNECTED;
             break;
-        case YarnNet::STATE_CLOSED:
+        case YNet::STATE_CLOSED:
             return CONNECTION_DISCONNECTED;
     }
     return CONNECTION_DISCONNECTED;
@@ -239,7 +239,6 @@ void YnetMultiplayerPeer::on_host_migration(const String &p_new_host) {
         for (const ObjectID &oid : sync_nodes) {
             MultiplayerSynchronizer *sync = get_id_as_synchronizer(oid);
             if(!sync) continue;
-            WARN_PRINT(vformat("[%s] Trying to change multiplayer authority on sync with authority %s if its authority is %s",ynet->real_hashed_sid,sync->get_multiplayer_authority(),previous_hashed_for_new_host));
             if (sync->get_multiplayer_authority() == previous_hashed_for_new_host) {
                 sync->set_multiplayer_authority(1);
                 sync_nodes_to_further_transfer_after.insert(oid);
@@ -260,6 +259,7 @@ void YnetMultiplayerPeer::on_host_migration(const String &p_new_host) {
     if (scene_multiplayer.is_valid()) {
         scene_multiplayer->transfer_peer_id_ownership(previous_hashed_for_new_host,1, true);
     }
+
     for (const ObjectID &oid : sync_nodes_to_further_transfer_after) {
         MultiplayerSynchronizer *sync = get_id_as_synchronizer(oid);
         if(!sync) continue;
@@ -270,8 +270,8 @@ void YnetMultiplayerPeer::on_host_migration(const String &p_new_host) {
             for (int i = 0; i < get_node->get_child_count(); ++i) {
                 Node* child_node = get_node->get_child(i);
                 if (child_node != nullptr && child_node->get_multiplayer_authority() == previous_hashed_for_new_host) {
-                    // Here I am because I would need to create a new recursive method if I wanted to do this checking further, and at least
-                    // on my own use it won't matter this deep into the node path.
+                    // Here I am setting it recursively because I would need to create a new recursive method if I
+                    // wanted to do this checking further, and at least on my own use it won't matter this deep into the node path.
                     child_node->set_multiplayer_authority(true);
                 }
             }
@@ -292,7 +292,8 @@ String YnetMultiplayerPeer::get_string_id(int _int_id) const {
 }
 
 YnetMultiplayerPeer::YnetMultiplayerPeer() {
-    ynet = YarnNet::get_singleton();
+    if (Engine::get_singleton()->is_editor_hint()) return;
+    ynet = YNet::get_singleton();
     ynet->connect(SNAME("room_connected"),callable_mp(this,&YnetMultiplayerPeer::on_room_connected));
     ynet->connect(SNAME("room_disconnected"),callable_mp(this,&YnetMultiplayerPeer::on_room_disconnected));
     ynet->connect(SNAME("player_joined"),callable_mp(this,&YnetMultiplayerPeer::on_player_joined));

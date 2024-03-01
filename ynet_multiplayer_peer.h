@@ -29,11 +29,11 @@ protected:
 	ConnectionStatus connection_status = CONNECTION_DISCONNECTED;
 
 	HashMap<int, String> peers_map;
-	YarnNet::Packet current_packet;
+	YNet::Packet current_packet;
 
 	int target_peer = 0;
 
-	YarnNet* ynet;
+	YNet* ynet;
 	static void _bind_methods();
 
 	static MultiplayerSynchronizer *get_id_as_synchronizer(const ObjectID &p_id) {
@@ -50,7 +50,6 @@ public:
 	virtual bool is_server_relay_supported() const override { return true; }
 
 	virtual int get_max_packet_size() const override;
-
 
 	virtual bool is_server() const override;
 	virtual void close() override;
