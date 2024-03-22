@@ -120,7 +120,11 @@ void YNet::setup_node() {
 
     if(!already_setup_in_tree && SceneTree::get_singleton() != nullptr) {
         bool is_enabled = GLOBAL_GET("YNet/settings/enabled");
-        if(!is_enabled) return;
+        if(!is_enabled) {
+            ynet_settings_enabled = false;
+            return;
+        }
+        ynet_settings_enabled=true;
         SceneTree::get_singleton()->get_root()->add_child(this);
         set_name("YNet");
         already_setup_in_tree=true;
@@ -147,6 +151,9 @@ void YNet::engineio_disconnect() {
 }
 
 Error YNet::engineio_connect(String _url) {
+    if(!ynet_settings_enabled) {
+        ERR_PRINT("[YNet] Attempting to connect while YNet is disabled on project settings");
+    }
     if(protocol == "change_me") {
         WARN_PRINT("[YNet] Make sure to change the protocol string in YNet settings");
     }
@@ -161,12 +168,12 @@ Error YNet::engineio_connect(String _url) {
         _url = "ws"+_url.erase(0,4);
     url = vformat("%s?EIO=4&transport=websocket",_url);
     if(debugging == ALL)
-        print_line("[YNet] Connecting... url in ",_url," url out ",url);
+        print_line("[YNet] Connecting... url in ",_url," url out ",url," valid websockets client? ",client.is_valid());
 
     if (!client.is_valid()) {
         YNet::create_client();
         if(debugging == ALL)
-            print_line("[YNet] WebSocket created");
+            print_line("[YNet] WebSocket created? ",client.is_valid());
     } else {
         if (client->get_ready_state() != STATE_CLOSED) {
             engineio_disconnect();
@@ -199,7 +206,7 @@ Error YNet::engineio_connect(String _url) {
 
 void YNet::create_client() {
     if (!client.is_valid()) {
-        client = Ref<WebSocketPeer>(Object::cast_to<WebSocketPeer>(ClassDB::instantiate("WebSocketPeer")));
+        client = Ref<WebSocketPeer>(WebSocketPeer::create());
     }
 }
 void YNet::set_max_queued_packets(int p_max_queued_packets) {
@@ -525,6 +532,7 @@ void YNet::update_last_engine_state() {
 
 void YNet::do_process() {
     update_last_engine_state();
+
     if (status == STATE_CONNECTING) {
         const float current_time = OS::get_singleton()->get_ticks_msec() * 0.001f;
         if (current_time > tick_started_connecting + 6.0f) {
@@ -547,6 +555,9 @@ void YNet::do_process() {
             //emit_signal("disconnected",slash_namespace);
         }
         set_current_state(STATE_CLOSED);
+        if (debugging == ALL) {
+            print_line("[YNet] Closed connection, stoppping process");
+        }
         set_process(false);
     }
 }

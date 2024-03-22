@@ -16,7 +16,7 @@ class YNet : public Node {
 protected:
     static void _bind_methods();
     void _notification(int p_what);
-
+    bool ynet_settings_enabled=false;
     inline static const String slash_namespace = "/";
     bool process_packets();
 

@@ -299,8 +299,12 @@ YnetMultiplayerPeer::YnetMultiplayerPeer() {
     ynet->connect(SNAME("player_joined"),callable_mp(this,&YnetMultiplayerPeer::on_player_joined));
     ynet->connect(SNAME("player_left"),callable_mp(this,&YnetMultiplayerPeer::on_player_left));
     ynet->connect(SNAME("host_migration"),callable_mp(this,&YnetMultiplayerPeer::on_host_migration));
-    ynet->get_tree()->get_multiplayer(ynet->get_path())->connect(SNAME("peer_connected"),callable_mp(this,&YnetMultiplayerPeer::on_multiplayer_api_peer_connected));
+    //ynet->get_tree()->get_multiplayer()->connect(SNAME("peer_connected"),callable_mp(this,&YnetMultiplayerPeer::on_multiplayer_api_peer_connected));
 }
+
+// void YnetMultiplayerPeer::wait_and_connect_peer_connected() {
+//
+// }
 
 YnetMultiplayerPeer::~YnetMultiplayerPeer() {
     ynet = nullptr;
