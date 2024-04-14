@@ -125,7 +125,7 @@ void YNet::setup_node() {
             return;
         }
         ynet_settings_enabled=true;
-        SceneTree::get_singleton()->get_root()->add_child(this);
+        SceneTree::get_singleton()->get_root()->call_deferred("add_child",this);
         set_name("YNet");
         already_setup_in_tree=true;
     }
