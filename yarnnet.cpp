@@ -486,7 +486,7 @@ bool YNet::socketio_parse_packet(String& payload) {
                 on_received_pkt(array[0],array[1]);
             }
             emit_signal(SNAME("event"),event_name,event_payload,name_space);
-            if(debugging >0) {
+            if(debugging == DebuggingLevel::ALL) {
                 print_line(vformat("[YNet %s] Socket IO Event Received = %s = data: = %s =",sid,event_name,event_payload));
             }
         }
