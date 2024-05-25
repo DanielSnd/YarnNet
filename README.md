@@ -14,6 +14,10 @@ The protocol setting is any string you'd like to use to identify this project. T
 
 ![image](https://github.com/DanielSnd/YarnNet/assets/9072324/0a7f78e0-1ce4-4026-8ed7-39ce2304e45b)
 
+## Server
+
+The server is made in node.js/socket.io and can be found in the server folder. It's the `server.js` file.
+
 ## Hosting a room:
 
 ```gdscript
