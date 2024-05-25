@@ -78,7 +78,9 @@ public:
 
 	void on_room_disconnected(const int &p_player);
 
+#ifdef HOST_MIGRATION
 	void on_host_migration(const String &p_new_host);
+#endif
 
 	void on_multiplayer_api_peer_connected(const int &peer_id);
 

@@ -40,7 +40,9 @@ void YNet::_bind_methods() {
     ADD_SIGNAL(MethodInfo("room_error", PropertyInfo(Variant::STRING, "returned_error")));
     ADD_SIGNAL(MethodInfo("player_joined", PropertyInfo(Variant::STRING, "player_sid")));
     ADD_SIGNAL(MethodInfo("player_left", PropertyInfo(Variant::STRING, "player_sid")));
+#ifdef HOST_MIGRATION
     ADD_SIGNAL(MethodInfo("host_migration", PropertyInfo(Variant::STRING, "new_host_sid")));
+#endif
 
     ADD_SIGNAL(MethodInfo("connected", PropertyInfo(Variant::STRING, "name_space"), PropertyInfo(Variant::BOOL, "result")));
     //ADD_SIGNAL(MethodInfo("disconnected", PropertyInfo(Variant::STRING, "name_space")));
@@ -192,7 +194,7 @@ Variant YNet::_receive_yrpc(const Variant **p_args, int p_argcount, Callable::Ca
             if (actual_node != nullptr && actual_node->has_method(method)) {
                 actual_node->callp(method,&p_args[2], p_argcount - 2, r_error);
 
-                print_line(vformat("Received yrpc id %d method %s",objid,method));
+                //print_line(vformat("Received yrpc id %d method %s",objid,method));
             }
         }
     }
@@ -234,7 +236,7 @@ Variant YNet::_receive_yrpc_also_local(const Variant **p_args, int p_argcount, C
             if (actual_node != nullptr && actual_node->has_method(method)) {
                 actual_node->callp(method,&p_args[2], p_argcount - 2, r_error);
 
-                print_line(vformat("Received yrpc id %d method %s",objid,method));
+                //print_line(vformat("Received yrpc id %d method %s",objid,method));
             }
         }
     }
@@ -685,7 +687,9 @@ bool YNet::socketio_parse_packet(String& payload) {
                 event_payload = array;
             }
             if (event_hash == newhost_event) {
+#ifdef HOST_MIGRATION
                 on_host_migrated(event_payload);
+#endif
             } else if (event_hash == roomcreated_event) {
                 on_room_created(event_payload);
             } else if (event_hash == roomjoined_event) {
@@ -824,13 +828,6 @@ void YNet::on_room_created(const String &p_new_room_id) {
     emit_signal(SNAME("room_connection_result"),p_new_room_id,true);
 }
 
-// ADD_SIGNAL(MethodInfo("room_created", PropertyInfo(Variant::STRING, "new_room_id")));
-// ADD_SIGNAL(MethodInfo("room_joined", PropertyInfo(Variant::STRING, "new_room_id")));
-// ADD_SIGNAL(MethodInfo("room_error", PropertyInfo(Variant::STRING, "returned_error")));
-// ADD_SIGNAL(MethodInfo("player_joined", PropertyInfo(Variant::STRING, "player_sid")));
-// ADD_SIGNAL(MethodInfo("player_left", PropertyInfo(Variant::STRING, "player_sid")));
-// ADD_SIGNAL(MethodInfo("host_migration", PropertyInfo(Variant::STRING, "new_host_sid")));
-
 void YNet::on_room_joined(const String &p_new_room_id,const String &p_host_id) {
     if(debugging > 0)
         print_line("on_room_joined ",p_new_room_id," host ",p_host_id," ",string_to_hash_id(p_host_id));
@@ -915,6 +912,7 @@ void YNet::on_player_left(const String &p_player) {
     emit_signal(SNAME("player_left"),p_player);
 }
 
+#ifdef HOST_MIGRATION
 void YNet::on_host_migrated(const String &p_new_host) {
     if(debugging > 0)
         print_line("on_host_migrated ",p_new_host);
@@ -930,6 +928,7 @@ void YNet::on_host_migrated(const String &p_new_host) {
     }
     emit_signal(SNAME("host_migration"),p_new_host);
 }
+#endif
 
 void YNet::register_for_yrpcs(Node *p_registering_node, int registering_id) {
     yrpc_to_node_hash_map[registering_id] = p_registering_node->get_instance_id();

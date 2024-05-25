@@ -210,6 +210,7 @@ void YnetMultiplayerPeer::on_multiplayer_api_peer_connected(const int &peer_id) 
     print_line("on_multiplayer_api_peer_connected id ",peer_id);
 }
 
+#ifdef HOST_MIGRATION
 void YnetMultiplayerPeer::on_host_migration(const String &p_new_host) {
     int previous_hashed_for_new_host = ynet->string_to_hash_id(p_new_host);
 
@@ -278,6 +279,7 @@ void YnetMultiplayerPeer::on_host_migration(const String &p_new_host) {
         }
     }
 }
+#endif
 
 String YnetMultiplayerPeer::get_string_id(int _int_id) const {
     if (peers_map.has(_int_id)) {
@@ -298,13 +300,11 @@ YnetMultiplayerPeer::YnetMultiplayerPeer() {
     ynet->connect(SNAME("room_disconnected"),callable_mp(this,&YnetMultiplayerPeer::on_room_disconnected));
     ynet->connect(SNAME("player_joined"),callable_mp(this,&YnetMultiplayerPeer::on_player_joined));
     ynet->connect(SNAME("player_left"),callable_mp(this,&YnetMultiplayerPeer::on_player_left));
+#ifdef HOST_MIGRATION
     ynet->connect(SNAME("host_migration"),callable_mp(this,&YnetMultiplayerPeer::on_host_migration));
-    //ynet->get_tree()->get_multiplayer()->connect(SNAME("peer_connected"),callable_mp(this,&YnetMultiplayerPeer::on_multiplayer_api_peer_connected));
+#endif
 }
 
-// void YnetMultiplayerPeer::wait_and_connect_peer_connected() {
-//
-// }
 
 YnetMultiplayerPeer::~YnetMultiplayerPeer() {
     ynet = nullptr;

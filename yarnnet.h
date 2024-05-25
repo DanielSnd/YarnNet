@@ -264,7 +264,10 @@ public:
     void on_received_pkt(const String &received_from, const String &pkt_content);
 
     void on_player_left(const String &p_player);
+
+#ifdef HOST_MIGRATION
     void on_host_migrated(const String &p_new_host);
+#endif
 
     void register_for_yrpcs(Node* p_registering_node, int registering_id);
 
