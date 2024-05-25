@@ -8,6 +8,8 @@
 #include "core/io/json.h"
 #include "modules/regex/regex.h"
 #include "scene/main/window.h"
+#include "scene/main/multiplayer_api.h"
+#include "scene/main/multiplayer_peer.h"
 #include <cstring>
 
 class YNet : public Node {
@@ -15,6 +17,12 @@ class YNet : public Node {
     
 protected:
     static void _bind_methods();
+
+    Error _send_yrpc(const Variant **p_args, int p_argcount, Callable::CallError &r_error);
+    Error _send_and_receive_yrpc(const Variant **p_args, int p_argcount, Callable::CallError &r_error);
+
+    StringName receive_yrpc_stringname;
+    StringName receive_yrpc_also_local_stringname;
     void _notification(int p_what);
     bool ynet_settings_enabled=false;
     inline static const String slash_namespace = "/";
@@ -32,10 +40,15 @@ protected:
     void setup_node();
     bool already_setup_in_tree = false;
     static YNet* singleton;
+    HashMap<int,ObjectID> yrpc_to_node_hash_map;
 
     void clear_unhandled_packets();
 
 public:
+    void remove_from_yrpc_receiving_map(int p_yrpc_id);
+
+    Variant _receive_yrpc(const Variant **p_args, int p_argcount, Callable::CallError &r_error);
+    Variant _receive_yrpc_also_local(const Variant **p_args, int p_argcount, Callable::CallError &r_error);
 
     struct Packet {
         int source = 0;
@@ -117,10 +130,10 @@ public:
     String get_sid() const {return sid;}
     void set_sid(String val) {sid = val;}
 
-    int real_hashed_sid;
+    int real_hashed_sid{};
     int get_real_hashed_sid() const {return real_hashed_sid;}
     void set_real_hashed_sid(int val) {}
-    int hashed_sid;
+    int hashed_sid{};
     int get_hashed_sid() const {return hashed_sid;}
     void set_hashed_sid(int val) {}
 
@@ -174,7 +187,7 @@ public:
     String get_host_id() const {return host_id;}
     void set_host_id(String val) {host_id = val;}
 
-    int host_id_hashed;
+    int host_id_hashed{};
 
     int get_new_network_id() { last_used_id = last_used_id + 1; return last_used_id-1;}
 
@@ -252,6 +265,8 @@ public:
 
     void on_player_left(const String &p_player);
     void on_host_migrated(const String &p_new_host);
+
+    void register_for_yrpcs(Node* p_registering_node, int registering_id);
 
     HashMap<String,int> connections_map;
 

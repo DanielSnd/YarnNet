@@ -109,6 +109,208 @@ void YNet::_bind_methods() {
     ClassDB::bind_method(D_METHOD("join_or_create_room", "roomcode"), &YNet::join_or_create_room);
     ClassDB::bind_method(D_METHOD("join_room", "roomcode"), &YNet::join_room);
     ClassDB::bind_method(D_METHOD("leave_room"), &YNet::leave_room);
+
+
+    ClassDB::bind_method(D_METHOD("register_for_yrpc","node","yrpc_id"), &YNet::register_for_yrpcs);
+    ClassDB::bind_method(D_METHOD("remove_from_yrpc","yrpc_id"), &YNet::remove_from_yrpc_receiving_map);
+
+    {
+        MethodInfo mi;
+        mi.name = "send_yrpc";
+        mi.arguments.push_back(PropertyInfo(Variant::INT, "receiver_id"));
+        mi.arguments.push_back(PropertyInfo(Variant::CALLABLE, "method"));
+
+        ClassDB::bind_vararg_method(METHOD_FLAGS_DEFAULT, "send_yrpc", &YNet::_send_yrpc, mi);
+    }
+
+
+    {
+        MethodInfo mi;
+        mi.name = "send_and_receive_yrpc";
+        mi.arguments.push_back(PropertyInfo(Variant::INT, "receiver_id"));
+        mi.arguments.push_back(PropertyInfo(Variant::CALLABLE, "method"));
+
+        ClassDB::bind_vararg_method(METHOD_FLAGS_DEFAULT, "send_and_receive_yrpc", &YNet::_send_and_receive_yrpc, mi);
+    }
+
+    {
+        MethodInfo mi;
+        mi.name = "receive_yrpc";
+        mi.arguments.push_back(PropertyInfo(Variant::INT, "receiver_id"));
+        mi.arguments.push_back(PropertyInfo(Variant::STRING_NAME, "method"));
+
+        ClassDB::bind_vararg_method(METHOD_FLAGS_DEFAULT, "receive_yrpc", &YNet::_receive_yrpc, mi);
+    }
+
+    {
+        MethodInfo mi;
+        mi.name = "receive_yrpc_call_local";
+        mi.arguments.push_back(PropertyInfo(Variant::INT, "receiver_id"));
+        mi.arguments.push_back(PropertyInfo(Variant::STRING_NAME, "method"));
+
+        ClassDB::bind_vararg_method(METHOD_FLAGS_DEFAULT, "receive_yrpc_call_local", &YNet::_receive_yrpc_also_local, mi);
+    }
+
+
+}
+
+void YNet::remove_from_yrpc_receiving_map(int p_yrpc_id) {
+    yrpc_to_node_hash_map.erase(p_yrpc_id);
+}
+
+Variant YNet::_receive_yrpc(const Variant **p_args, int p_argcount, Callable::CallError &r_error) {
+    if (p_argcount < 2) {
+        r_error.error = Callable::CallError::CALL_ERROR_TOO_FEW_ARGUMENTS;
+        r_error.expected = 2;
+        return ERR_INVALID_PARAMETER;
+    }
+
+    Variant::Type itype = p_args[0]->get_type();
+    if (itype != Variant::INT) {
+        r_error.error = Callable::CallError::CALL_ERROR_INVALID_ARGUMENT;
+        r_error.argument = 0;
+        r_error.expected = Variant::INT;
+        return ERR_INVALID_PARAMETER;
+    }
+
+    Variant::Type type = p_args[1]->get_type();
+    if (type != Variant::STRING_NAME && type != Variant::STRING) {
+        r_error.error = Callable::CallError::CALL_ERROR_INVALID_ARGUMENT;
+        r_error.argument = 1;
+        r_error.expected = Variant::STRING_NAME;
+        return ERR_INVALID_PARAMETER;
+    }
+
+    int objid = p_args[0]->operator int();
+
+    StringName method = (*p_args[1]).operator StringName();
+
+    if (yrpc_to_node_hash_map.has(objid)) {
+        auto node_found = ObjectDB::get_instance(yrpc_to_node_hash_map[objid]);
+        if (node_found != nullptr) {
+            Node *actual_node = Object::cast_to<Node>(node_found);
+            if (actual_node != nullptr && actual_node->has_method(method)) {
+                actual_node->callp(method,&p_args[2], p_argcount - 2, r_error);
+
+                print_line(vformat("Received yrpc id %d method %s",objid,method));
+            }
+        }
+    }
+
+    return 0;
+}
+
+Variant YNet::_receive_yrpc_also_local(const Variant **p_args, int p_argcount, Callable::CallError &r_error) {
+    if (p_argcount < 2) {
+        r_error.error = Callable::CallError::CALL_ERROR_TOO_FEW_ARGUMENTS;
+        r_error.expected = 2;
+        return ERR_INVALID_PARAMETER;
+    }
+
+    Variant::Type itype = p_args[0]->get_type();
+    if (itype != Variant::INT) {
+        r_error.error = Callable::CallError::CALL_ERROR_INVALID_ARGUMENT;
+        r_error.argument = 0;
+        r_error.expected = Variant::INT;
+        return ERR_INVALID_PARAMETER;
+    }
+
+    Variant::Type type = p_args[1]->get_type();
+    if (type != Variant::STRING_NAME && type != Variant::STRING) {
+        r_error.error = Callable::CallError::CALL_ERROR_INVALID_ARGUMENT;
+        r_error.argument = 1;
+        r_error.expected = Variant::STRING_NAME;
+        return ERR_INVALID_PARAMETER;
+    }
+
+    int objid = p_args[0]->operator int();
+
+    StringName method = (*p_args[1]).operator StringName();
+
+    if (yrpc_to_node_hash_map.has(objid)) {
+        auto node_found = ObjectDB::get_instance(yrpc_to_node_hash_map[objid]);
+        if (node_found != nullptr) {
+            Node *actual_node = Object::cast_to<Node>(node_found);
+            if (actual_node != nullptr && actual_node->has_method(method)) {
+                actual_node->callp(method,&p_args[2], p_argcount - 2, r_error);
+
+                print_line(vformat("Received yrpc id %d method %s",objid,method));
+            }
+        }
+    }
+
+    return 0;
+}
+
+
+Error YNet::_send_and_receive_yrpc(const Variant **p_args, int p_argcount, Callable::CallError &r_error) {
+    if (p_argcount < 2) {
+        r_error.error = Callable::CallError::CALL_ERROR_TOO_FEW_ARGUMENTS;
+        r_error.expected = 2;
+        return ERR_INVALID_PARAMETER;
+    }
+
+    Variant::Type itype = p_args[0]->get_type();
+    if (itype != Variant::INT) {
+        r_error.error = Callable::CallError::CALL_ERROR_INVALID_ARGUMENT;
+        r_error.argument = 0;
+        r_error.expected = Variant::INT;
+        return ERR_INVALID_PARAMETER;
+    }
+
+    Variant::Type type = p_args[1]->get_type();
+    if (type != Variant::CALLABLE) {
+        r_error.error = Callable::CallError::CALL_ERROR_INVALID_ARGUMENT;
+        r_error.argument = 1;
+        r_error.expected = Variant::CALLABLE;
+        return ERR_INVALID_PARAMETER;
+    }
+
+    Callable p_callable = p_args[1]->operator Callable();
+    p_args[1] = new Variant(p_callable.get_method());
+    ERR_FAIL_COND_V(!is_inside_tree(), ERR_UNCONFIGURED);
+
+    Ref<MultiplayerAPI> api = get_multiplayer();
+    if (api.is_null()) {
+        return ERR_UNCONFIGURED;
+    }
+
+    return api->rpcp(this, 0, receive_yrpc_also_local_stringname, p_args, p_argcount);
+}
+
+Error YNet::_send_yrpc(const Variant **p_args, int p_argcount, Callable::CallError &r_error) {
+    if (p_argcount < 2) {
+        r_error.error = Callable::CallError::CALL_ERROR_TOO_FEW_ARGUMENTS;
+        r_error.expected = 2;
+        return ERR_INVALID_PARAMETER;
+    }
+
+    Variant::Type itype = p_args[0]->get_type();
+    if (itype != Variant::INT) {
+        r_error.error = Callable::CallError::CALL_ERROR_INVALID_ARGUMENT;
+        r_error.argument = 0;
+        r_error.expected = Variant::INT;
+        return ERR_INVALID_PARAMETER;
+    }
+
+    Variant::Type type = p_args[1]->get_type();
+    if (type != Variant::CALLABLE) {
+        r_error.error = Callable::CallError::CALL_ERROR_INVALID_ARGUMENT;
+        r_error.argument = 1;
+        r_error.expected = Variant::CALLABLE;
+        return ERR_INVALID_PARAMETER;
+    }
+
+    Callable p_callable = p_args[1]->operator Callable();
+    p_args[1] = new Variant(p_callable.get_method());
+    ERR_FAIL_COND_V(!is_inside_tree(), ERR_UNCONFIGURED);
+
+    Ref<MultiplayerAPI> api = get_multiplayer();
+    if (api.is_null()) {
+        return ERR_UNCONFIGURED;
+    }
+
+    return api->rpcp(this, 0, receive_yrpc_stringname, p_args, p_argcount);
 }
 
 void YNet::setup_node() {
@@ -147,6 +349,8 @@ void YNet::engineio_disconnect() {
         }
         update_last_engine_state();
         set_process(false);
+        client.unref();
+        client = nullptr;
     }
 }
 
@@ -244,6 +448,20 @@ void YNet::_notification(int p_what) {
             }
         }break;
         case NOTIFICATION_READY: {
+            Dictionary receive_yrpc_config;
+            receive_yrpc_config["rpc_mode"] = MultiplayerAPI::RPC_MODE_ANY_PEER;
+            receive_yrpc_config["transfer_mode"] = MultiplayerPeer::TRANSFER_MODE_UNRELIABLE_ORDERED;
+            receive_yrpc_config["call_local"] = false;
+            receive_yrpc_config["channel"] = 0;
+            this->rpc_config(receive_yrpc_stringname,receive_yrpc_config);
+
+
+            Dictionary receive_yrpc_local_config;
+            receive_yrpc_local_config["rpc_mode"] = MultiplayerAPI::RPC_MODE_ANY_PEER;
+            receive_yrpc_local_config["transfer_mode"] = MultiplayerPeer::TRANSFER_MODE_UNRELIABLE_ORDERED;
+            receive_yrpc_local_config["call_local"] = true;
+            receive_yrpc_local_config["channel"] = 0;
+            this->rpc_config(receive_yrpc_also_local_stringname,receive_yrpc_local_config);
         } break;
         case NOTIFICATION_PROCESS: {
             if(client.is_valid()) {
@@ -713,11 +931,18 @@ void YNet::on_host_migrated(const String &p_new_host) {
     emit_signal(SNAME("host_migration"),p_new_host);
 }
 
+void YNet::register_for_yrpcs(Node *p_registering_node, int registering_id) {
+    yrpc_to_node_hash_map[registering_id] = p_registering_node->get_instance_id();
+    p_registering_node->connect("tree_exiting", callable_mp(this,&YNet::remove_from_yrpc_receiving_map).bind(registering_id));
+}
+
 YNet * YNet::get_singleton() {
     return singleton;
 }
 
 YNet::YNet() {
+    receive_yrpc_stringname = "receive_yrpc";
+    receive_yrpc_also_local_stringname = "receive_yrpc_call_local";
     singleton = this;
     max_queued_packets = 2048;
     call_deferred("setup_node");
