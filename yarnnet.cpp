@@ -4,6 +4,7 @@
 #include "core/crypto/crypto_core.h"
 #include "core/io/marshalls.h"
 #include "core/object/script_language.h"
+#include "scene/2d/node_2d.h"
 
 void YNet::_bind_methods() {
     BIND_ENUM_CONSTANT(open);
@@ -112,9 +113,26 @@ void YNet::_bind_methods() {
     ClassDB::bind_method(D_METHOD("join_room", "roomcode"), &YNet::join_room);
     ClassDB::bind_method(D_METHOD("leave_room"), &YNet::leave_room);
 
+    ClassDB::bind_method(D_METHOD("add_network_spawnable","spawnable_path"), &YNet::add_network_spawnable);
+    ClassDB::bind_method(D_METHOD("clear_all_spawned_network_nodes"), &YNet::clear_all_spawned_network_nodes);
+
+    ClassDB::bind_method(D_METHOD("spawn","spawnable_scene","spawned_name","parent_path","global_pos"), &YNet::spawn);
+    //spawn(Ref<PackedScene> p_spawnable_scene, Variant p_spawn_pos, String p_spawn_name, NodePath p_desired_parent)
+
+    ClassDB::bind_method(D_METHOD("rpc_spawn","network_id","packedscene_path_id","spawn_name","desired_parent_absolute_path","spawn_pos"), &YNet::rpc_spawn);
+
+    ClassDB::bind_method(D_METHOD("rpc_despawn","network_obj_id"), &YNet::rpc_despawn);
+    ClassDB::bind_method(D_METHOD("despawn","network_obj_id"), &YNet::despawn);
+    ClassDB::bind_method(D_METHOD("despawn_node","node"), &YNet::despawn_node);
+    ClassDB::bind_method(D_METHOD("get_spawned_obj_count"), &YNet::get_spawned_obj_count);
+    ClassDB::bind_method(D_METHOD("get_queued_spawn_count"), &YNet::get_queued_spawn_count);
 
     ClassDB::bind_method(D_METHOD("register_for_yrpc","node","yrpc_id"), &YNet::register_for_yrpcs);
     ClassDB::bind_method(D_METHOD("remove_from_yrpc","yrpc_id"), &YNet::remove_from_yrpc_receiving_map);
+
+    ClassDB::bind_method(D_METHOD("rpc_respond_with_spawned_nodes","spawned_nodes_data"), &YNet::rpc_respond_with_spawned_nodes);
+    ClassDB::bind_method(D_METHOD("rpc_request_spawned_nodes","requester_id"), &YNet::rpc_request_spawned_nodes);
+
 
     {
         MethodInfo mi;
@@ -318,9 +336,9 @@ Error YNet::_send_yrpc(const Variant **p_args, int p_argcount, Callable::CallErr
 void YNet::setup_node() {
     add_setting("YNet/settings/enabled", false, Variant::Type::BOOL);
     add_setting("YNet/settings/protocol", "change_me", Variant::Type::STRING);
-    // //r_options->push_back(ImportOption(PropertyInfo(Variant::ARRAY, "fallbacks", PROPERTY_HINT_ARRAY_TYPE, PROPERTY_HINT_NODE_TYPE), Array()));
-    // add_setting("YNet/settings/networked_nodes", TypedArray<NodePath>(), Variant::Type::ARRAY, PROPERTY_HINT_ARRAY_TYPE,
-    //         vformat("%s/%s:",Variant::Type::STRING, PROPERTY_HINT_FILE));
+    //r_options->push_back(ImportOption(PropertyInfo(Variant::ARRAY, "fallbacks", PROPERTY_HINT_ARRAY_TYPE, PROPERTY_HINT_NODE_TYPE), Array()));
+    add_setting("YNet/settings/network_spawnable_scenes", TypedArray<String>(), Variant::Type::ARRAY, PROPERTY_HINT_ARRAY_TYPE,
+            vformat("%s/%s:",Variant::Type::STRING, PROPERTY_HINT_FILE));
 
     if(!already_setup_in_tree && SceneTree::get_singleton() != nullptr) {
         bool is_enabled = GLOBAL_GET("YNet/settings/enabled");
@@ -332,6 +350,11 @@ void YNet::setup_node() {
         SceneTree::get_singleton()->get_root()->call_deferred("add_child",this);
         set_name("YNet");
         already_setup_in_tree=true;
+    }
+
+    TypedArray<String> network_spawnables_paths = GLOBAL_GET("YNet/settings/network_spawnable_scenes");
+    for (String network_spawnables_path: network_spawnables_paths) {
+        add_network_spawnable(network_spawnables_path);
     }
 
     protocol = GLOBAL_GET("YNet/settings/protocol");
@@ -354,6 +377,223 @@ void YNet::engineio_disconnect() {
         client.unref();
         client = nullptr;
     }
+}
+
+void YNet::rpc_spawn(const int p_network_id, const uint32_t &p_spawnable_path_id, const String &p_spawn_name, const String &p_desired_parent, Variant p_spawn_pos) {
+    ERR_FAIL_COND_MSG(!spawnables_dictionary.has(p_spawnable_path_id), "ERROR: Received a spawn rpc with a scene id that wasn't present as a spawnable scene in YNet");
+    Ref<PackedScene> ps = ResourceLoader::load(spawnables_dictionary[p_spawnable_path_id]);
+    ERR_FAIL_COND_MSG(ps.is_null() || !ps.is_valid(), "ERROR: Received a spawn rpc with a invalid or null packed scene");
+    internal_spawn(p_network_id,ps,p_spawn_name,NodePath{p_desired_parent},p_spawn_pos);
+}
+
+void YNet::internal_spawn_with_queued_struct(const NetworkSpawnedObjectInfo &p_nsoi) {
+    const int p_nid = p_nsoi.network_instance_id;
+    const Vector3 spawn_pos = Vector3{static_cast<float>(p_nsoi.spawn_pos_x) * 0.01f, static_cast<float>(p_nsoi.spawn_pos_y) * 0.01f, static_cast<float>(p_nsoi.spawn_pos_z) * 0.01f};
+    const Ref<PackedScene> ps = ResourceLoader::load(spawnables_dictionary[p_nsoi.spawnable_scene_id]);
+    internal_spawn(p_nid,ps,p_nsoi.spawned_name,p_nsoi.desired_parent,spawn_pos);
+}
+
+Variant YNet::create_spawned_lists_variant() {
+    Array variant_array;
+    for (const auto& _spawn_queued_list: queued_networked_spawned_objects) {
+        variant_array.push_back(convert_nsoi_to_variant(_spawn_queued_list.value));
+    }
+    for (const auto& _spawned_list: networked_spawned_objects) {
+        variant_array.push_back(convert_nsoi_to_variant(_spawned_list.value));
+    }
+    return variant_array;
+}
+
+
+void YNet::unpack_spawned_list_variants(const Array& received_spawned_list) {
+    for (const auto& spawn_info : received_spawned_list) {
+        unpack_spawninfo_from_variant (spawn_info);
+    }
+}
+
+Variant YNet::convert_nsoi_to_variant(const NetworkSpawnedObjectInfo &p_nsoi) {
+    Array variant_array;
+    variant_array.push_back(p_nsoi.network_instance_id);
+    variant_array.push_back(p_nsoi.spawnable_scene_id);
+    variant_array.push_back(p_nsoi.spawned_name);
+    variant_array.push_back(String(p_nsoi.desired_parent));
+    bool has_spawned = false;
+    bool has_z = false;
+    if (p_nsoi.SpawnedNodeId.is_valid()) {
+        const auto find_instance = ObjectDB::get_instance(p_nsoi.SpawnedNodeId);
+        const auto spawned_node2D = Object::cast_to<Node2D>(find_instance);
+        if (spawned_node2D != nullptr) {
+            const Vector2 _current_pos = spawned_node2D->get_global_position();
+            has_spawned = true;
+            variant_array.push_back(_current_pos.x * 100.0);
+            variant_array.push_back(_current_pos.y * 100.0);
+        } else {
+            const auto spawned_node3D = Object::cast_to<Node3D>(find_instance);
+            if (spawned_node3D != nullptr) {
+                const Vector3 _current_pos = spawned_node3D->get_global_position();
+                has_spawned=true;
+                has_z = true;
+                variant_array.push_back(_current_pos.x * 100.0);
+                variant_array.push_back(_current_pos.y * 100.0);
+                variant_array.push_back(_current_pos.z * 100.0);
+            }
+        }
+    }
+    if (!has_spawned) {
+        variant_array.push_back(p_nsoi.spawn_pos_x);
+        variant_array.push_back(p_nsoi.spawn_pos_y);
+    } else {
+        if (!has_z) {
+            variant_array.push_back(p_nsoi.spawn_pos_z);
+        }
+    }
+    return variant_array;
+}
+
+void YNet::unpack_spawninfo_from_variant(const Array& received_spawn_info) {
+    ERR_FAIL_COND_MSG(received_spawn_info.size() < 7, "ERROR: Attempted to unpack a spawninfo variable with wrong number of arguments");
+    int _n_id = received_spawn_info[0];
+    if (networked_spawned_objects.has(_n_id)) {
+        return;
+    }
+    queued_networked_spawned_objects[_n_id] = NetworkSpawnedObjectInfo{_n_id, received_spawn_info[1],
+        received_spawn_info[2], ObjectID{}, NodePath{received_spawn_info[3]}, received_spawn_info[4]
+    ,received_spawn_info[5], received_spawn_info[6]};
+}
+
+Node *YNet::internal_spawn(int p_network_id, const Ref<PackedScene> &p_spawnable_scene, const String &p_spawn_name, const NodePath &p_desired_parent, Variant p_spawn_pos) {
+    ERR_FAIL_COND_V_MSG(p_spawnable_scene.is_null() || !p_spawnable_scene.is_valid(), nullptr, "ERROR: Spawnable scene is not valid");
+    uint32_t desired_spawn_path_id = string_to_hash_id(p_spawnable_scene->get_path());
+    ERR_FAIL_COND_V_MSG(!spawnables_dictionary.has(desired_spawn_path_id), nullptr, "ERROR: Provided scene wasn't added as a spawnable scene to YNet");
+
+    int _spawn_x = -1;
+    int _spawn_y = -1;
+    int _spawn_z = -1;
+
+    if (p_spawn_pos.get_type() == Variant::Type::VECTOR3) {
+        const Vector3 _desired_spawn_pos = p_spawn_pos;
+        _spawn_x = static_cast<int>(_desired_spawn_pos.x * 100);
+        _spawn_y = static_cast<int>(_desired_spawn_pos.y * 100);
+        _spawn_z = static_cast<int>(_desired_spawn_pos.z * 100);
+    }
+    else if (p_spawn_pos.get_type() == Variant::Type::VECTOR2) {
+        const Vector2 _desired_spawn_pos = p_spawn_pos;
+        _spawn_x = static_cast<int>(_desired_spawn_pos.x * 100);
+        _spawn_y = static_cast<int>(_desired_spawn_pos.y * 100);
+    }
+
+    Node* p_desired_parent_node = this->get_node_or_null(p_desired_parent);
+
+    if (p_desired_parent_node == nullptr) {
+        // Parent node isn't here yet, try again later.
+        if (!queued_networked_spawned_objects.has(p_network_id))
+            queued_networked_spawned_objects[p_network_id] = NetworkSpawnedObjectInfo{p_network_id, desired_spawn_path_id, p_spawn_name, ObjectID{}, p_desired_parent, _spawn_x, _spawn_y, _spawn_z};
+        return nullptr;
+    }
+
+    if (get_multiplayer()->is_server()) {
+        //const int p_network_id, const uint32_t &p_spawnable_path_id, const String &p_spawn_name, const String &p_desired_parent, Variant p_spawn_pos)
+        Array p_arguments;
+        p_arguments.push_back(p_network_id);
+        p_arguments.push_back(desired_spawn_path_id);
+        p_arguments.push_back(p_spawn_name);
+        p_arguments.push_back(String(p_desired_parent));
+        p_arguments.push_back(p_spawn_pos);
+        int argcount = p_arguments.size();
+        const Variant **argptrs = (const Variant **)alloca(sizeof(Variant *) * argcount);
+        for (int i = 0; i < argcount; i++) {
+            argptrs[i] = &p_arguments[i];
+        }
+        rpcp(0,rpc_spawn_stringname,argptrs,argcount);
+    }
+
+    auto spawned_instance = p_spawnable_scene->instantiate();
+
+    ERR_FAIL_COND_V_MSG(spawned_instance == nullptr, nullptr, "ERROR: Spawned Instance is null");
+
+    spawned_instance->set_name(p_spawn_name);
+    spawned_instance->set_meta("net_id",p_network_id);
+    p_desired_parent_node->add_child(spawned_instance,true);
+    auto spawned_node2D = Object::cast_to<Node2D>(spawned_instance);
+    if (spawned_node2D != nullptr) {
+        spawned_node2D->set_global_position(p_spawn_pos);
+        spawned_node2D->connect("exit_tree",callable_mp(this,&YNet::spawned_network_node_exited_tree),CONNECT_ONE_SHOT);
+    } else {
+        auto spawned_node3D = Object::cast_to<Node3D>(spawned_instance);
+        if (spawned_node3D != nullptr) {
+            spawned_node3D->set_global_position(p_spawn_pos);
+        }
+    }
+    networked_spawned_objects[p_network_id] = NetworkSpawnedObjectInfo{p_network_id, desired_spawn_path_id, p_spawn_name, spawned_instance->get_instance_id(), p_desired_parent, _spawn_x, _spawn_y, _spawn_z};
+    if (queued_networked_spawned_objects.has(p_network_id))
+        queued_networked_spawned_objects.erase(p_network_id);
+    return spawned_instance;
+}
+
+Node *YNet::spawn(const Ref<PackedScene> &p_spawnable_scene, const String &p_spawn_name, const NodePath &p_desired_parent, Variant p_spawn_pos) {
+    ERR_FAIL_COND_V_MSG(!get_multiplayer()->is_server(), nullptr, "ERROR: Attempted to spawn a networked node from a client");
+    return internal_spawn(get_new_network_id(),p_spawnable_scene, p_spawn_name, p_desired_parent,p_spawn_pos);
+}
+
+void YNet::rpc_request_spawned_nodes(int id_requesting) {
+    Array p_arguments;
+    p_arguments.push_back(create_spawned_lists_variant());
+    int argcount = p_arguments.size();
+    const Variant **argptrs = (const Variant **)alloca(sizeof(Variant *) * argcount);
+    for (int i = 0; i < argcount; i++) {
+        argptrs[i] = &p_arguments[i];
+    }
+    rpcp(id_requesting,rpc_respond_with_spawned_nodes_stringname,argptrs,argcount);
+    //print_line(vformat("[%s] Received spawned nodes request from %d",get_multiplayer()->is_server() ? "SERVER" : "CLIENT",id_requesting));
+}
+
+void YNet::rpc_respond_with_spawned_nodes(const Array& spawned_nodes_info) {
+    unpack_spawned_list_variants(spawned_nodes_info);
+    //print_line(vformat("[%s] Received resulting spawned nodes response from server. In queue now: %d",get_multiplayer()->is_server() ? "SERVER" : "CLIENT",get_queued_spawn_count()));
+    count_to_check_should_spawn = 999;
+}
+
+void YNet::rpc_despawn(int p_network_id) {
+    if (queued_networked_spawned_objects.has(p_network_id)) {
+        queued_networked_spawned_objects.erase(p_network_id);
+    }
+    if(!networked_spawned_objects.has(p_network_id)) {
+        return;
+    }
+    auto spawned_obj_info = networked_spawned_objects[p_network_id];
+    if (spawned_obj_info.SpawnedNodeId.is_valid()) {
+        auto find_instance = ObjectDB::get_instance(spawned_obj_info.SpawnedNodeId);
+        if (find_instance != nullptr) {
+            auto spawned_node = Object::cast_to<Node>(find_instance);
+            if (spawned_node != nullptr) {
+                networked_spawned_objects.erase(p_network_id);
+                spawned_node->queue_free();
+                return;
+            }
+        }
+    }
+    networked_spawned_objects.erase(p_network_id);
+}
+
+void YNet::despawn(int p_network_id) {
+    ERR_FAIL_COND_MSG(!get_multiplayer()->is_server(), "ERROR: Attempted to despawn a networked node from a client");
+    ERR_FAIL_COND_MSG(!queued_networked_spawned_objects.has(p_network_id) && !networked_spawned_objects.has(p_network_id), "ERROR: Attempted to despawn a networked node not present in the dictionary");
+    rpc_despawn(p_network_id);
+    Array p_arguments;
+    p_arguments.push_back(p_network_id);
+    int argcount = p_arguments.size();
+    const Variant **argptrs = (const Variant **)alloca(sizeof(Variant *) * argcount);
+    for (int i = 0; i < argcount; i++) {
+        argptrs[i] = &p_arguments[i];
+    }
+    rpcp(0,rpc_despawn_stringname,argptrs,argcount);
+}
+
+void YNet::despawn_node(const Node* node_to_despawn) {
+    ERR_FAIL_COND_MSG(node_to_despawn == nullptr, "ERROR: Attempted to despawn a null node");
+    ERR_FAIL_COND_MSG(!node_to_despawn->has_meta("net_id"), "ERROR: Attempted to despawn a node without a networked id");
+    int net_id_despawning = node_to_despawn->get_meta("net_id",0);
+    despawn(net_id_despawning);
 }
 
 Error YNet::engineio_connect(String _url) {
@@ -450,20 +690,13 @@ void YNet::_notification(int p_what) {
             }
         }break;
         case NOTIFICATION_READY: {
-            Dictionary receive_yrpc_config;
-            receive_yrpc_config["rpc_mode"] = MultiplayerAPI::RPC_MODE_ANY_PEER;
-            receive_yrpc_config["transfer_mode"] = MultiplayerPeer::TRANSFER_MODE_UNRELIABLE_ORDERED;
-            receive_yrpc_config["call_local"] = false;
-            receive_yrpc_config["channel"] = 0;
-            this->rpc_config(receive_yrpc_stringname,receive_yrpc_config);
-
-
-            Dictionary receive_yrpc_local_config;
-            receive_yrpc_local_config["rpc_mode"] = MultiplayerAPI::RPC_MODE_ANY_PEER;
-            receive_yrpc_local_config["transfer_mode"] = MultiplayerPeer::TRANSFER_MODE_UNRELIABLE_ORDERED;
-            receive_yrpc_local_config["call_local"] = true;
-            receive_yrpc_local_config["channel"] = 0;
-            this->rpc_config(receive_yrpc_also_local_stringname,receive_yrpc_local_config);
+            get_multiplayer()->connect("connected_to_server",callable_mp(this,&YNet::on_connected_to_server));
+            this->rpc_config(receive_yrpc_stringname,create_rpc_dictionary_config(MultiplayerAPI::RPC_MODE_ANY_PEER, MultiplayerPeer::TRANSFER_MODE_UNRELIABLE_ORDERED, false, 0));
+            this->rpc_config(receive_yrpc_also_local_stringname,create_rpc_dictionary_config(MultiplayerAPI::RPC_MODE_ANY_PEER, MultiplayerPeer::TRANSFER_MODE_UNRELIABLE_ORDERED, true, 0));
+            this->rpc_config(rpc_spawn_stringname,create_rpc_dictionary_config(MultiplayerAPI::RPC_MODE_AUTHORITY, MultiplayerPeer::TRANSFER_MODE_RELIABLE, false, 0));
+            this->rpc_config(rpc_despawn_stringname,create_rpc_dictionary_config(MultiplayerAPI::RPC_MODE_AUTHORITY, MultiplayerPeer::TRANSFER_MODE_RELIABLE, false, 0));
+            this->rpc_config(rpc_request_spawned_nodes_stringname,create_rpc_dictionary_config(MultiplayerAPI::RPC_MODE_ANY_PEER, MultiplayerPeer::TRANSFER_MODE_RELIABLE, false, 0));
+            this->rpc_config(rpc_respond_with_spawned_nodes_stringname,create_rpc_dictionary_config(MultiplayerAPI::RPC_MODE_AUTHORITY, MultiplayerPeer::TRANSFER_MODE_RELIABLE, false, 0));
         } break;
         case NOTIFICATION_PROCESS: {
             if(client.is_valid()) {
@@ -475,7 +708,79 @@ void YNet::_notification(int p_what) {
     }
 }
 
+void YNet::spawned_network_node_exited_tree(int p_nid) {
+    if (networked_spawned_objects.has(p_nid)) {
+        networked_spawned_objects.erase(p_nid);
+        if (get_multiplayer()->is_server()) {
+            Array p_arguments;
+            p_arguments.push_back(p_nid);
+            int argcount = p_arguments.size();
+            const Variant **argptrs = (const Variant **)alloca(sizeof(Variant *) * argcount);
+            for (int i = 0; i < argcount; i++) {
+                argptrs[i] = &p_arguments[i];
+            }
+            rpcp(0,rpc_despawn_stringname,argptrs,argcount);
+        }
+    }
+}
+
+void YNet::clear_all_spawned_network_nodes() {
+    Vector<ObjectID> nodes_to_despawn;
+    for (const auto& nsob: networked_spawned_objects) {
+        if (nsob.value.SpawnedNodeId.is_valid()) {
+            nodes_to_despawn.push_back(nsob.value.SpawnedNodeId);
+        }
+    }
+    networked_spawned_objects.clear();
+    for (auto to_despawn: nodes_to_despawn) {
+        Node *actual_node = Object::cast_to<Node>(ObjectDB::get_instance(to_despawn));
+        if (actual_node != nullptr) {
+            actual_node->queue_free();
+        }
+    }
+}
+
+void YNet::on_connected_to_server() {
+    //print_line("on connect to server");
+    if (!get_multiplayer()->is_server()) {
+        rpc(rpc_request_spawned_nodes_stringname,get_multiplayer()->get_unique_id());
+    }
+}
+
+Dictionary YNet::create_rpc_dictionary_config(MultiplayerAPI::RPCMode p_rpc_mode, MultiplayerPeer::TransferMode p_transfer_mode, bool p_call_local, int p_channel) {
+    Dictionary _dict_config;
+    _dict_config["rpc_mode"] = p_rpc_mode;
+    _dict_config["transfer_mode"] = p_transfer_mode;
+    _dict_config["call_local"] = p_call_local;
+    _dict_config["channel"] = p_channel;
+    return _dict_config;
+}
+
 bool YNet::process_packets() {
+    count_to_check_should_spawn += 1;
+    if (count_to_check_should_spawn > 30) {
+        count_to_check_should_spawn = 0;
+        if (!queued_networked_spawned_objects.is_empty()) {
+            const int amount_queued = static_cast<int>(queued_networked_spawned_objects.size());
+            Vector<NetworkSpawnedObjectInfo> infos_to_spawn;
+            for (const auto& queued_spawnables: queued_networked_spawned_objects) {
+                auto _get_node_or_null = get_node_or_null(queued_spawnables.value.desired_parent);
+                if (_get_node_or_null != nullptr) {
+                    infos_to_spawn.push_back(queued_spawnables.value);
+                }
+            }
+            for (const auto& to_spawn: infos_to_spawn) {
+                internal_spawn_with_queued_struct(to_spawn);
+            }
+            const int amount_spawned = static_cast<int>(infos_to_spawn.size());
+            if (amount_spawned > 0) {
+                const int amount_queued_after = static_cast<int>(queued_networked_spawned_objects.size());
+                const int amount_currently_spawned = static_cast<int>(networked_spawned_objects.size());
+                //print_line(vformat("[%s] Had %d queued before, spawned %d, had %d queued after. Total spawned now: %d",get_multiplayer()->is_server() ? "SERVER" : "CLIENT",amount_queued,amount_spawned,amount_queued_after,amount_currently_spawned));
+            }
+        }
+    }
+
     if(offline_mode) {
         return true;
     }
@@ -942,6 +1247,10 @@ YNet * YNet::get_singleton() {
 YNet::YNet() {
     receive_yrpc_stringname = "receive_yrpc";
     receive_yrpc_also_local_stringname = "receive_yrpc_call_local";
+    rpc_spawn_stringname = "rpc_spawn";
+    rpc_despawn_stringname = "rpc_despawn";
+    rpc_request_spawned_nodes_stringname = "rpc_request_spawned_nodes";
+    rpc_respond_with_spawned_nodes_stringname = "rpc_respond_with_spawned_nodes";
     singleton = this;
     max_queued_packets = 2048;
     call_deferred("setup_node");

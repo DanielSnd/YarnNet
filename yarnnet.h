@@ -12,18 +12,64 @@
 #include "scene/main/multiplayer_peer.h"
 #include <cstring>
 
+#include "scene/resources/packed_scene.h"
+#include "scene/3d/node_3d.h"
+#include "scene/2d/node_2d.h"
+
+
+class YNetPropertySyncer : public RefCounted {
+    GDCLASS(YNetPropertySyncer, RefCounted);
+
+protected:
+    static void _bind_methods();
+
+public:
+    YNetPropertySyncer() {
+
+    }
+};
+
 class YNet : public Node {
     GDCLASS(YNet, Node);
     
 protected:
     static void _bind_methods();
 
+    struct NetworkSpawnedObjectInfo {
+        int network_instance_id;
+        uint32_t spawnable_scene_id;
+        String spawned_name;
+        ObjectID SpawnedNodeId;
+        NodePath desired_parent;
+        int spawn_pos_x;
+        int spawn_pos_y;
+        int spawn_pos_z;
+    };
+
     Error _send_yrpc(const Variant **p_args, int p_argcount, Callable::CallError &r_error);
     Error _send_and_receive_yrpc(const Variant **p_args, int p_argcount, Callable::CallError &r_error);
 
     StringName receive_yrpc_stringname;
     StringName receive_yrpc_also_local_stringname;
+    StringName rpc_spawn_stringname;
+    StringName rpc_despawn_stringname;
+    StringName rpc_request_spawned_nodes_stringname;
+    StringName rpc_respond_with_spawned_nodes_stringname;
+
+    int count_to_check_should_spawn = 0;
+
     void _notification(int p_what);
+
+    void spawned_network_node_exited_tree(int p_nid);
+
+    void clear_all_spawned_network_nodes();
+
+    void on_connected_to_server();
+
+    Dictionary create_rpc_dictionary_config(MultiplayerAPI::RPCMode p_rpc_mode,
+                                            MultiplayerPeer::TransferMode p_transfer_mode, bool p_call_local,
+                                            int p_channel);
+
     bool ynet_settings_enabled=false;
     inline static const String slash_namespace = "/";
     bool process_packets();
@@ -38,6 +84,15 @@ protected:
     void do_process();
 
     void setup_node();
+
+    int get_queued_spawn_count() const {
+        return static_cast<int>(queued_networked_spawned_objects.size());
+    }
+
+    int get_spawned_obj_count() const {
+        return static_cast<int>(networked_spawned_objects.size());
+    }
+
     bool already_setup_in_tree = false;
     static YNet* singleton;
     HashMap<int,ObjectID> yrpc_to_node_hash_map;
@@ -115,7 +170,18 @@ public:
     Error socketio_send_packet_binary(SocketIOPacketType packet_type, PackedByteArray &p_message);
     Error socketio_send_packet_text(SocketIOPacketType packet_type, Variant p_text = {}, String name_space = slash_namespace);
     Error socketio_send(String event_name, Variant data = {} , String name_space = slash_namespace);
-    
+
+    int next_networked_spawn_id = 1;
+
+    HashMap<int,NetworkSpawnedObjectInfo> queued_networked_spawned_objects;
+    HashMap<int,NetworkSpawnedObjectInfo> networked_spawned_objects;
+
+    HashMap<uint32_t,String> spawnables_dictionary;
+
+    void add_network_spawnable(const String& new_spawnable) {
+        spawnables_dictionary[string_to_hash_id(new_spawnable)] = new_spawnable;
+    }
+
     String protocol ="change_me";
     String get_protocol() const {return protocol;}
     void set_protocol(String val) {protocol = val;}
@@ -183,6 +249,34 @@ public:
     bool get_is_host() const {return is_host;}
     void set_is_host(bool val) {}
 
+    Node *internal_spawn(int network_id, const Ref<PackedScene> &p_spawnable_scene, const String &p_spawn_name,
+                         const NodePath &p_desired_parent, Variant p_spawn_pos);
+
+    void rpc_spawn(int network_id, const uint32_t &p_spawnable_path_id, const String &p_spawn_name, const String &p_desired_parent,
+                   Variant p_spawn_pos);
+
+    void internal_spawn_with_queued_struct(const NetworkSpawnedObjectInfo &p_nsoi);
+
+    Variant create_spawned_lists_variant();
+
+    void unpack_spawned_list_variants(const Array &received_spawned_list);
+
+    Variant convert_nsoi_to_variant(const NetworkSpawnedObjectInfo &p_nsoi);
+
+    void unpack_spawninfo_from_variant(const Array &received_spawn_info);
+
+    Node *spawn(const Ref<PackedScene> &p_spawnable_scene, const String &p_spawn_name, const NodePath &p_desired_parent, Variant p_spawn_pos);
+
+    void rpc_request_spawned_nodes(int p_id_requesting);
+
+    void rpc_respond_with_spawned_nodes(const Array &spawned_nodes_info);
+
+    void rpc_despawn(int p_network_id);
+
+    void despawn(int network_id);
+
+    void despawn_node(const Node *node_to_despawn);
+
     String host_id;
     String get_host_id() const {return host_id;}
     void set_host_id(String val) {host_id = val;}
@@ -241,6 +335,7 @@ public:
 
     void engineio_disconnect();
 
+
     int max_queued_packets;
     void set_max_queued_packets(int p_max_queued_packets);
     int get_max_queued_packets();
@@ -264,6 +359,8 @@ public:
     void on_received_pkt(const String &received_from, const String &pkt_content);
 
     void on_player_left(const String &p_player);
+
+    int string_to_hash(const String &str);
 
 #ifdef HOST_MIGRATION
     void on_host_migrated(const String &p_new_host);
