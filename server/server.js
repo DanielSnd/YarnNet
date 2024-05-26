@@ -45,10 +45,20 @@ const io = require("socket.io")(server, {
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/', function(request, response) {
   // HTML form with password input and checkboxes for message selection
-  
+    let room_list_html = "";  // to store the HTML for room list
+
+    // loop through each room in rooms object and generate list item HTML
+    for (let room_code in rooms) {
+        let room_name = rooms[room_code].roomName;
+        let player_count = Object.keys(rooms[room_code].clients).length + 1;  // assuming each room object has a playerCount property
+
+        // append the list item HTML to room_list_html
+        room_list_html += `<li>Room Code: ${room_code}, Room Name: ${room_name}, Player count: ${player_count}</li>`;
+    }
   const htmlContent = `
     <html>
     <head>
+    <title>Server</title>
       <style>
         body {
           background-color: #333; /* Dark Gray */
@@ -56,10 +66,78 @@ app.get('/', function(request, response) {
         }
       </style>
     </head>
-    <body><h1> ${io.engine.clientsCount} connected</h1></body></html>`;
+    <body><h1> ${io.engine.clientsCount} connected</h1></body>
+    <ul>
+        ${room_list_html}
+      </ul>
+      </html>`;
     
   response.send(htmlContent);
 });
+
+function handleRoomJoin(roomCode, socket, sent_password) {
+    if (rooms[roomCode]) {
+        if (rooms[roomCode].password === "" || rooms[roomCode].password === sent_password) {
+            let amount_of_clients = Object.keys(rooms[roomCode].clients).length + 1
+            if (amount_of_clients < rooms[roomCode].maxPlayers) {
+                socket.join(roomCode);
+                rooms[roomCode].clients[socket.id] = socket.id;
+                const hostSocketId = rooms[roomCode] && rooms[roomCode].host;
+                if (hostSocketId) {
+                    socket.emit('roomjoined', roomCode, rooms[roomCode].host);
+                } else {
+                    console.log(`No valid host found for room code: ${roomCode}`);
+                    rooms[roomCode].host = socket.id;
+                    delete rooms[roomCode].clients[rooms[roomCode].host];
+                    io.to(roomCode).emit('newhost', socket.id);
+                    socket.emit('roomjoined', roomCode, socket.id);
+                }
+
+                // Collect all socket IDs in the room except the newly joined one
+                const socketIdsInRoom = Object.values(rooms[roomCode].clients).filter(id => id !== socket.id).concat(rooms[roomCode].host);
+
+                // Emit the array of socket IDs to the player who just joined
+                socket.emit('roomplayers', socketIdsInRoom);
+
+                io.to(roomCode).except(socket.id).emit('playerjoin', socket.id);
+                console.log(`User ${socket.id} has joined room ${roomCode} which has host ${rooms[roomCode].host}`);
+            } else {
+                socket.emit('roomerror', 'This room is full');
+                console.log(`Room is full ${roomCode}. Current player number ${amount_of_clients} max players allowed ${rooms[roomCode].maxPlayers}`);
+            }
+        } else {
+            if (sent_password === "") {
+                socket.emit('roomerror', 'This room requires a password.');
+                console.log(`Room requires a password ${roomCode}`);
+            } else {
+                socket.emit('roomerror', 'Wrong password.');
+                console.log(`Wrong password ${roomCode}`);
+            }
+        }
+    } else {
+        socket.emit('roomerror', 'This room does not exist');
+        console.log(`Room doesn't exist ${roomCode}`);
+    }
+}
+
+function createNewRoom(roomCode, protocol, socket) {
+    while (rooms[roomCode]) {
+        roomCode = generateRoomCode() + protocol;
+    }
+    rooms[roomCode] = {
+        host: socket.id,
+        roomName: "",
+        private: false,
+        password: "",
+        maxPlayers: 32,
+        can_hostMigrate: false,
+        extra_info: "",
+        clients: {}
+    };
+    socket.join(roomCode);
+    socket.emit('roomcreated', roomCode);
+    console.log(`Room ${roomCode} has been created by ${socket.id}`);
+}
 
 io.on('connection', (socket) => {
     console.log(`player joined ${socket.id}`);
@@ -76,40 +154,16 @@ io.on('connection', (socket) => {
 
     socket.on('requestroom', (protocol) => {
         let roomCode = generateRoomCode() + protocol;
-        while (rooms[roomCode]) {
-            roomCode = generateRoomCode() + protocol;
-        }
-        rooms[roomCode] = { host: socket.id };
-        socket.join(roomCode);
-        socket.emit('roomcreated', roomCode);
-        console.log(`Room ${roomCode} has been created by ${socket.id}`);
+        createNewRoom(roomCode, protocol, socket);
+    });
+
+
+    socket.on('joinroomwithpassword', (roomCode, roompassword) => {
+        handleRoomJoin(roomCode, socket, roompassword)
     });
 
     socket.on('joinroom', (roomCode) => {
-        if (rooms[roomCode]) {
-            socket.join(roomCode);
-            rooms[roomCode][socket.id] = socket.id;
-            const hostSocketId = rooms[roomCode] && rooms[roomCode].host;
-            if (hostSocketId) {
-                socket.emit('roomjoined', roomCode, rooms[roomCode].host);
-            } else {
-                console.log(`No valid host found for room code: ${roomCode}`);
-                rooms[roomCode].host = socket.id;
-                delete rooms[roomCode][rooms[roomCode].host];
-                io.to(roomCode).emit('newhost', socket.id);
-                socket.emit('roomjoined', roomCode, socket.id);
-            }
-            
-            // Collect all socket IDs in the room except the newly joined one
-            const socketIdsInRoom = Object.values(rooms[roomCode]).filter(id => id !== socket.id);
-            // Emit the array of socket IDs to the player who just joined
-            socket.emit('roomplayers', socketIdsInRoom);
-
-            io.to(roomCode).except(socket.id).emit('playerjoin',socket.id);
-            console.log(`User ${socket.id} has joined room ${roomCode} which has host ${rooms[roomCode].host}`);
-        } else {
-            socket.emit('roomerror', 'This room does not exist');
-        }
+        handleRoomJoin(roomCode, socket, "");
     });
 
     socket.on('joinOrCreateRoom', (roomCode) => {    
@@ -118,35 +172,10 @@ io.on('connection', (socket) => {
             roomCode = generateRoomCode();
         }
         if (rooms[roomCode]) {
-            // Join the existing room
-            socket.join(roomCode);
-            rooms[roomCode][socket.id] = socket.id;
-            const hostSocketId = rooms[roomCode] && rooms[roomCode].host;
-            if (hostSocketId) {
-                socket.emit('roomjoined', roomCode, rooms[roomCode].host);
-            } else {
-                console.log(`No valid host found for room code: ${roomCode}`);
-                rooms[roomCode].host = socket.id;
-                delete rooms[roomCode][rooms[roomCode].host];
-                io.to(roomCode).emit('newhost', socket.id);
-                socket.emit('roomjoined', roomCode, socket.id);
-            }
-            // Collect all socket IDs in the room except the newly joined one
-            const socketIdsInRoom = Object.values(rooms[roomCode]).filter(id => id !== socket.id);
-            // Emit the array of socket IDs to the player who just joined
-            socket.emit('roomplayers', socketIdsInRoom);
-            io.to(roomCode).except(socket.id).emit('playerjoin',socket.id);
-            console.log(`User ${socket.id} has joined room ${roomCode} which has host ${rooms[roomCode].host}`);
+            handleRoomJoin(roomCode, socket, "");
         } else {
             // Create and join a new room
-            let newRoomCode = roomCode;
-            while (rooms[newRoomCode]) {
-                newRoomCode = generateRoomCode() + roomCode;
-            }
-            rooms[newRoomCode] = { host: socket.id };
-            socket.join(newRoomCode);
-            socket.emit('roomcreated', newRoomCode);
-            console.log(`Room ${newRoomCode} has been created by ${socket.id}`);
+            createNewRoom(roomCode,roomCode,socket);
         }
     });
 
@@ -157,19 +186,6 @@ io.on('connection', (socket) => {
     socket.on('message', (message) => {
         console.log("received message:",message)
     });
-    // socket.on('rpctoserver', (roomCode, ...rpcArgs) => {
-    //     const hostSocketId = rooms[roomCode] && rooms[roomCode].host;
-    //     if (hostSocketId) {
-    //         io.to(hostSocketId).emit('rpc', ...rpcArgs);
-    //     }
-    // });
-
-    // socket.on('rpctoclients', (roomCode, ...rpcArgs) => {
-    //     if (rooms[roomCode] && rooms[roomCode].host === socket.id) {
-    //         socket.to(roomCode).emit('rpc', ...rpcArgs);
-    //     }
-    // });    
-    
     
     socket.on('beep', (roomCode, rpctype) => {
         console.log(`Received 'beep' event for room code: ${roomCode}`);
@@ -201,7 +217,7 @@ io.on('connection', (socket) => {
         //console.log(`Received 'rpctoclientid' event for socket id: ${targetSocketId} in room: ${roomCode}`);
         // Check if the current socket is the host
         if (rooms[roomCode] && rooms[roomCode].host === socket.id) {
-            const clients = Object.keys(rooms[roomCode]);
+            const clients = Object.keys(rooms[roomCode].clients);
             if (clients.includes(targetSocketId)) {
                 //console.log(`Valid host with socket ID: ${socket.id} is sending RPC to client with socket ID: ${targetSocketId}`);
                 socket.to(targetSocketId).emit('rpc', socket.id, rpctype,nob, buff);
@@ -213,13 +229,81 @@ io.on('connection', (socket) => {
         }
     });
 
-    
+    socket.on('set_password', (roomCode, new_password) => {
+        if (rooms[roomCode] && rooms[roomCode].host === socket.id) {
+            rooms[roomCode].password = new_password;
+        } else {
+            console.log(`Invalid host or no valid host found for room code: ${roomCode}`);
+        }
+    });
+
+    socket.on('set_max_players', (roomCode, new_max_players) => {
+        if (rooms[roomCode] && rooms[roomCode].host === socket.id) {
+            rooms[roomCode].maxPlayers = new_max_players;
+        } else {
+            console.log(`Invalid host or no valid host found for room code: ${roomCode}`);
+        }
+    });
+
+    socket.on('set_private', (roomCode, new_private) => {
+        if (rooms[roomCode] && rooms[roomCode].host === socket.id) {
+            rooms[roomCode].private = new_private;
+        } else {
+            console.log(`Invalid host or no valid host found for room code: ${roomCode}`);
+        }
+    });
+
+    socket.on('set_can_host_migrate', (roomCode, new_can_host_migrate) => {
+        if (rooms[roomCode] && rooms[roomCode].host === socket.id) {
+            rooms[roomCode].can_hostMigrate = new_can_host_migrate;
+        } else {
+            console.log(`Invalid host or no valid host found for room code: ${roomCode}`);
+        }
+    });
+
+    socket.on('set_room_name', (roomCode, new_room_name) => {
+        if (rooms[roomCode] && rooms[roomCode].host === socket.id) {
+            rooms[roomCode].roomName = new_room_name;
+        } else {
+            console.log(`Invalid host or no valid host found for room code: ${roomCode}`);
+        }
+    });
+
+    socket.on('set_extra_info', (roomCode, new_extra_info) => {
+        if (rooms[roomCode] && rooms[roomCode].host === socket.id) {
+            rooms[roomCode].extra_info = new_extra_info;
+        } else {
+            console.log(`Invalid host or no valid host found for room code: ${roomCode}`);
+        }
+    });
+
+    socket.on('get_room_info', (roomCode) => {
+        if (rooms[roomCode]) {
+            socket.emit("roominfo",rooms[roomCode])
+        } else {
+            console.log(`Invalid room: ${roomCode}`);
+        }
+    });
+
+    socket.on('get_room_list', (protocol) => {
+        let room_codes = Object.keys(rooms).filter(code => code.endsWith(protocol));
+        let room_codes_minus_protocol = room_codes.map(code => code.slice(0, -protocol.length));
+        let room_info_array = room_codes_minus_protocol.map(code => {
+            let room = rooms[code + protocol];  // Get the room object for this code
+            if (room && !room.private) { // Check whether the room exists
+                return [code, room.roomName, Object.keys(room.clients).length + 1, room.maxPlayers, room.extra_info, room.password !== ""];
+            }
+        });
+        room_info_array = room_info_array.filter(i => i);
+        socket.emit("roomlist", room_info_array);
+    });
+
     socket.on('pkt2serv', (roomCode, packetcontent) => {
         //console.log(`Received 'pkt2serv' event for room code: ${roomCode} content ${packetcontent}`);
         const hostSocketId = rooms[roomCode] && rooms[roomCode].host;
         if (hostSocketId) {
             //console.log(`Found valid host with socket ID: ${hostSocketId}`);
-            const clients = Object.keys(rooms[roomCode]);
+            const clients = Object.keys(rooms[roomCode].clients);
             if (clients.includes(socket.id)) {
                 io.to(hostSocketId).emit('pkt', socket.id, packetcontent);
             } else {
@@ -244,7 +328,7 @@ io.on('connection', (socket) => {
         //console.log(`Received 'pkt2cid' event for socket id: ${targetSocketId} in room: ${roomCode} content ${packetcontent}`);
         // Check if the current socket is the host
         if (rooms[roomCode] && rooms[roomCode].host === socket.id) {
-            const clients = Object.keys(rooms[roomCode]);
+            const clients = Object.keys(rooms[roomCode].clients);
             if (clients.includes(targetSocketId)) {
                 //console.log(`Valid host with socket ID: ${socket.id} is sending RPC to client with socket ID: ${targetSocketId}`);
                 socket.to(targetSocketId).emit('pkt', socket.id, packetcontent);
@@ -258,9 +342,9 @@ io.on('connection', (socket) => {
 });
 
 function generateRoomCode() {
-    var hex = "ABCDEFRTPXZSQHJYWKN123456789";
-    var code = "";
-    for (var i = 0; i < 6; i++) {
+    const hex = "ABCDEFRTPXZSQHJYWKN123456789";
+    let code = "";
+    for (let i = 0; i < 6; i++) {
       code += hex[Math.floor(Math.random() * 16)];
     }
     return code;
@@ -269,22 +353,32 @@ function generateRoomCode() {
 function handlePlayerLeavingRoom(socket) {
     for (const roomCode in rooms) {
         let leavingId = socket.id;
-        if (rooms[roomCode][socket.id] || rooms[roomCode].host === leavingId) {
+        if (rooms[roomCode].clients[socket.id] || rooms[roomCode].host === leavingId) {
                 io.to(roomCode).emit('playerleft', leavingId);
-                delete rooms[roomCode][leavingId];
+                delete rooms[roomCode].clients[leavingId];
                 if (rooms[roomCode].host === socket.id) {
-                    const clients = Object.keys(rooms[roomCode]).filter(id => id !== 'host');
-                    if (clients.length > 0) {
-                        rooms[roomCode].host = clients[0];
-                        delete rooms[roomCode][rooms[roomCode].host];
-                        io.to(roomCode).emit('newhost', clients[0]);
-                        console.log(`New host of room ${roomCode} is ${clients[0]}`);
+                    if (rooms[roomCode].can_hostMigrate) {
+                        const clients = Object.keys(rooms[roomCode].clients);
+                        if (clients.length > 0) {
+                            rooms[roomCode].host = clients[0];
+                            delete rooms[roomCode].clients[rooms[roomCode].host];
+                            io.to(roomCode).emit('newhost', clients[0]);
+                            console.log(`New host of room ${roomCode} is ${clients[0]}`);
+                        } else {
+                            console.log(`Room ${roomCode} was deleted`);
+                            delete rooms[roomCode];
+                        }
                     } else {
-                        console.log(`Room ${roomCode} was deleted`);
+                        io.to(roomCode).emit('roomerror', "The Host Left");
+                        for (const socket in rooms[roomCode].clients) {
+                            if (socket) {
+                                socket.disconnect(); // disconnect the socket
+                            }
+                        }
                         delete rooms[roomCode];
                     }
-                    break;
                 }
+                break;
             }
     }
 }
