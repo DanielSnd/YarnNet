@@ -10,6 +10,13 @@ You need to compile the module with Godot Engine (4.2+). When compiling use the 
 
 Once you have the YarnNet module in your version of the engine, if you want to use it in your project go to settings and enable it.
 
+## How to compile with godot
+1. Download godot source
+2. Create a new directory under modules directory called yarnnet
+3. Copy all the contents of this repository to that new directory modules/yarnnet
+4. If you are not using the features for host migration run the standard [godot compile command](https://docs.godotengine.org/en/latest/contributing/development/compiling/) with additional argument `host_migration=no` e.g. `scons platform=windows host_migration=no`
+5. If you are using the features for host migration the godot source must include changes from [this repo](https://github.com/DanielSnd/godot/tree/rebased4.3) for the necessary engine changes. Run build command as normal.
+
 The protocol setting is any string you'd like to use to identify this project. This string is used to filter rooms in the socket.io server, so you can use the same socket.io server for different projects and make sure that your players aren't trying to join the wrong project's room. You could also include a game version in this protocol string so players from different versions can't join the same room together since that could cause issues with RPCs and things that aren't present in different versions.
 
 ![image](https://github.com/DanielSnd/YarnNet/assets/9072324/0a7f78e0-1ce4-4026-8ed7-39ce2304e45b)
