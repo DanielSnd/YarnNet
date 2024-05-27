@@ -395,7 +395,6 @@ void YNet::engineio_disconnect() {
         update_last_engine_state();
         set_process(false);
         client.unref();
-        client = nullptr;
     }
 }
 
