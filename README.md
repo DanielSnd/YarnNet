@@ -8,14 +8,16 @@ I'm mostly doing this for my own personal use so things are messier than they pr
 
 You need to compile the module with Godot Engine (4.2+). When compiling use the argument `host_migration=no` so the module doesn't include the host migration code. The host migration code requires changes to godot engine itself (You can see those changes in my [fork here](https://github.com/godotengine/godot-proposals/issues/7912#issuecomment-1963170915) if you'd like to use host migration.)
 
-Once you have the YarnNet module in your version of the engine, if you want to use it in your project go to settings and enable it.
-
 ## How to compile with godot
 1. Download godot source
 2. Create a new directory under modules directory called yarnnet
 3. Copy all the contents of this repository to that new directory modules/yarnnet
 4. If you are not using the features for host migration run the standard [godot compile command](https://docs.godotengine.org/en/latest/contributing/development/compiling/) with additional argument `host_migration=no` e.g. `scons platform=windows host_migration=no`
 5. If you are using the features for host migration the godot source must include changes from [this repo](https://github.com/DanielSnd/godot/tree/rebased4.3) for the necessary engine changes. Run build command as normal.
+
+## Setting up in Project Settings
+
+Once you have the YarnNet module in your version of the engine, if you want to use it in your project go to settings and enable it.
 
 The protocol setting is any string you'd like to use to identify this project. This string is used to filter rooms in the socket.io server, so you can use the same socket.io server for different projects and make sure that your players aren't trying to join the wrong project's room. You could also include a game version in this protocol string so players from different versions can't join the same room together since that could cause issues with RPCs and things that aren't present in different versions.
 
@@ -30,16 +32,11 @@ The server is made in node.js/socket.io and can be found in the server folder. I
 ```gdscript
 func _on_host_pressed() -> void:
 	var peer:MultiplayerPeer = YnetMultiplayerPeer.new()
-
-  ## First step is to connect to the socket.io server
-	YNet.ynet_connect("http://localhost:8211")
-
 	print("Await for connection attempt")
-
-  ## After calling YNet.ynet_connect you need to await for the socket.io connection to happen. If result[1] is false then the connection failed.
-	var result = await YNet.connected
+  ## First step is to connect to the socket.io server. After calling YNet.ynet_connect you need to await for the socket.io connection to happen. If result[1] is false then the connection failed. result[0] is an error String.
+	var result = await YNet.ynet_connect("http://localhost:8211").connected
 	if !result[1]:
-		printerr("Failed to connect to ynet socket io")
+		printerr("Failed to connect to ynet socket io %s" % result[0])
 		return
 
   ## If the connection succeeded add the created peer to the multiplayer peer.
@@ -47,13 +44,10 @@ func _on_host_pressed() -> void:
 	multiplayer.peer_connected.connect(on_peer_connected)
 	multiplayer.peer_disconnected.connect(on_peer_disconnected)
 
-  ## At this point you can now create a room.
-	YNet.create_room()
-
-  ## After requesting a room creation you need to await for the result of the room creation, if result[1] is false then the room creation failed.
-	result = await YNet.room_connection_result
+  ## At this point you can now create a room. After requesting a room creation you need to await for the result of the room creation, if result[1] is false then the room creation failed. result[0] is an error String.
+	result = YNet.create_room().room_connection_result
 	if !result[1]:
-		printerr("Failed to create room")
+		printerr("Failed to create room %s" % result[0])
 		multiplayer.peer_connected.disconnect(on_peer_connected)
 		multiplayer.multiplayer_peer = null
 		return
@@ -68,18 +62,13 @@ The first part is the same as the way to Host a game. It only changes once you a
 
 
 ```gdscript
-func _on_host_pressed() -> void:
+func _on_join_pressed() -> void:
 	var peer:MultiplayerPeer = YnetMultiplayerPeer.new()
-
-  ## First step is to connect to the socket.io server
-	YNet.ynet_connect("http://localhost:8211")
-
 	print("Await for connection attempt")
-
-  ## After calling YNet.ynet_connect you need to await for the socket.io connection to happen. If result[1] is false then the connection failed.
-	var result = await YNet.connected
+  ## First step is to connect to the socket.io server. After calling YNet.ynet_connect you need to await for the socket.io connection to happen. If result[1] is false then the connection failed. result[0] is an error String.
+	var result = await YNet.ynet_connect("http://localhost:8211").connected
 	if !result[1]:
-		printerr("Failed to connect to ynet socket io")
+		printerr("Failed to connect to ynet socket io %s" % result[0])
 		return
 
   ## If the connection succeeded add the created peer to the multiplayer peer.
@@ -87,16 +76,13 @@ func _on_host_pressed() -> void:
 	multiplayer.peer_connected.connect(on_peer_connected)
 	multiplayer.peer_disconnected.connect(on_peer_disconnected)
 
-  ## At this point you can now join a room. With YNet.join_or_create_room it will try to join the room, but if it can't find the room to join it will create a room with the provided room id. This can be used to create rooms with specific room ids.
-  ## Since room IDs in socket.io include the protocol, we take the room id the player entered and add the protocol to it when passing it to YNet for joining.
-
-	YNet.join_or_create_room(line_edit.text + YNet.protocol)
-
+  ## At this point you can now join a room. With YNet.join_or_create_room it will try to join the room,
+  ## but if it can't find the room to join it will create a room with the provided room id. This can be used to create rooms with specific room ids.
+  ## If you pass an empty string it will attempt to join any valid room in the server, or create a new one if it can't find any.
   ## After calling join_or_create_room you need to wait for the result of the join attempt. If result[1] is false then it failed.
-	result = await YNet.room_connection_result
-
+	result = YNet.join_or_create_room(line_edit.text).room_connection_result
 	if !result[1]:
-		printerr("Failed to join room")
+		printerr("Failed to join room. %s" % result[0])
 		multiplayer.peer_connected.disconnect(on_peer_connected)
 		multiplayer.multiplayer_peer = null
 		return
@@ -108,5 +94,4 @@ func _on_host_pressed() -> void:
 
 This is a small demo project showing how to connect, create and join rooms. It also includes a multiplayer spawner and multiplayer synchronizer to show the custom MultiplayerPeer working. The spawned "players" are actually texts with the socket.io id for easier debugging.
 
-[YarnNetDemoProject.zip](https://github.com/DanielSnd/YarnNet/files/15445373/YarnNetDemoProject.zip)
-
+[YarnNetDemoProject.zip](https://github.com/DanielSnd/YarnNet/files/15455894/YarnNetDemoProject.zip)
