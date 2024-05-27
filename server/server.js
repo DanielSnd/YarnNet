@@ -166,6 +166,24 @@ io.on('connection', (socket) => {
         handleRoomJoin(roomCode, socket, "");
     });
 
+    socket.on('joinOrCreateRoomRandom', (protocol) => {
+        if (!protocol || protocol.trim() === "") {
+            return;
+        }
+
+        // Look for a non-private non-password-protected lobby with open spots and join that one
+        for(roomCode of Object.keys(rooms)) {
+            if(roomCode.endsWith(protocol) && !rooms[roomCode].private && (Object.keys(rooms[roomCode].clients).length + 1) < rooms[roomCode].maxPlayers && rooms[roomCode].password === "") {
+                console.log(`Matchmaking success, joining room: ${roomCode} ${rooms[roomCode]}`)
+                handleRoomJoin(roomCode, socket, "");
+                return;
+            }
+        }
+
+        // Create and join a new room
+        createNewRoom(generateRoomCode(),protocol,socket);
+    });
+
     socket.on('joinOrCreateRoom', (roomCode) => {    
         if (!roomCode || roomCode.trim() === "") {
             // Room code is null or empty, generate a new one

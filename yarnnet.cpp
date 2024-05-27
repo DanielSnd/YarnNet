@@ -118,11 +118,11 @@ void YNet::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_new_network_id"), &YNet::get_new_network_id);
 
     ClassDB::bind_method(D_METHOD("create_room"), &YNet::create_room);
-    ClassDB::bind_method(D_METHOD("join_or_create_room", "roomcode"), &YNet::join_or_create_room);
+    ClassDB::bind_method(D_METHOD("join_or_create_room", "roomcode"), &YNet::join_or_create_room, DEFVAL(""));
     ClassDB::bind_method(D_METHOD("join_room", "roomcode"), &YNet::join_room);
     ClassDB::bind_method(D_METHOD("leave_room"), &YNet::leave_room);
-
     ClassDB::bind_method(D_METHOD("join_room_with_password", "roomCode", "password"), &YNet::join_room_with_password);
+
     ClassDB::bind_method(D_METHOD("set_password", "newPassword"), &YNet::set_password);
     ClassDB::bind_method(D_METHOD("set_max_players", "newMaxPlayers"), &YNet::set_max_players);
     ClassDB::bind_method(D_METHOD("set_private", "newPrivate"), &YNet::set_private);
@@ -1119,34 +1119,38 @@ int YNet::get_max_queued_packets() {
     return client->get_max_queued_packets();
 }
 
-Error YNet::create_room() {
+YNet* YNet::create_room() {
     socketio_send("requestroom",protocol);
-    return OK;
+    return this;
 }
 
-Error YNet::join_or_create_room(const String &join_room) {
-    socketio_send("joinOrCreateRoom",join_room);
-    return OK;
+YNet* YNet::join_or_create_room(const String &join_room) {
+    if (join_room.is_empty()) {
+        socketio_send("joinOrCreateRoomRandom",protocol);
+    } else {
+        socketio_send("joinOrCreateRoom",join_room);
+    }
+    return this;
 }
 
-Error YNet::join_room(const String &join_room) {
+YNet* YNet::join_room(const String &join_room) {
     socketio_send("joinroom",join_room);
-    return OK;
+    return this;
 }
 
-Error YNet::leave_room() {
+YNet* YNet::leave_room() {
     socketio_send("leaveroom");
     clear_unhandled_packets();
     room_id = "";
-    return OK;
+    return this;
 }
 
-Error YNet::join_room_with_password(const String &roomCode, const String &password) {
+YNet* YNet::join_room_with_password(const String &roomCode, const String &password) {
     Array payload;
     payload.push_back(roomCode);
     payload.push_back(password);
     socketio_send("joinroomwithpassword", payload);
-    return OK;
+    return this;
 }
 
 Error YNet::set_password(const String &newPassword) {

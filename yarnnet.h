@@ -345,14 +345,14 @@ public:
     void set_max_queued_packets(int p_max_queued_packets);
     int get_max_queued_packets();
 
-    Error create_room();
+    YNet* create_room();
 
-    Error join_or_create_room(const String &join_room);
+    YNet* join_or_create_room(const String &join_room);
 
-    Error join_room(const String &p_join_room);
-    Error leave_room();
+    YNet* join_room(const String &p_join_room);
+    YNet* leave_room();
 
-    Error join_room_with_password(const String &roomCode, const String &password);
+    YNet* join_room_with_password(const String &roomCode, const String &password);
 
     Error set_password(const String &newPassword);
 
