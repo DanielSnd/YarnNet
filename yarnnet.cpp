@@ -6,6 +6,13 @@
 #include "core/object/script_language.h"
 #include "scene/2d/node_2d.h"
 
+void YNetPropertySyncer::_bind_methods() {
+
+}
+
+YNetPropertySyncer::YNetPropertySyncer(const Object *p_target, const Vector<StringName> &p_property) {
+}
+
 void YNet::_bind_methods() {
     BIND_ENUM_CONSTANT(open);
     BIND_ENUM_CONSTANT(close);
@@ -30,6 +37,8 @@ void YNet::_bind_methods() {
     ADD_SIGNAL(MethodInfo("room_connection_result", PropertyInfo(Variant::STRING, "room_id"),PropertyInfo(Variant::BOOL, "result")));
     ADD_SIGNAL(MethodInfo("room_connected", PropertyInfo(Variant::INT, "id")));
     ADD_SIGNAL(MethodInfo("room_disconnected", PropertyInfo(Variant::INT, "id")));
+    ADD_SIGNAL(MethodInfo("room_info", PropertyInfo(Variant::DICTIONARY, "info")));
+    ADD_SIGNAL(MethodInfo("room_list", PropertyInfo(Variant::ARRAY, "list")));
     //ADD_SIGNAL(MethodInfo("engine_status_changed", PropertyInfo(Variant::INT, "status")));
     ADD_SIGNAL(MethodInfo("status_changed", PropertyInfo(Variant::INT, "status")));
     //ADD_SIGNAL(MethodInfo("engine_connection_result", PropertyInfo(Variant::STRING, "sid"), PropertyInfo(Variant::BOOL, "result")));
@@ -112,6 +121,16 @@ void YNet::_bind_methods() {
     ClassDB::bind_method(D_METHOD("join_or_create_room", "roomcode"), &YNet::join_or_create_room);
     ClassDB::bind_method(D_METHOD("join_room", "roomcode"), &YNet::join_room);
     ClassDB::bind_method(D_METHOD("leave_room"), &YNet::leave_room);
+
+    ClassDB::bind_method(D_METHOD("join_room_with_password", "roomCode", "password"), &YNet::join_room_with_password);
+    ClassDB::bind_method(D_METHOD("set_password", "newPassword"), &YNet::set_password);
+    ClassDB::bind_method(D_METHOD("set_max_players", "newMaxPlayers"), &YNet::set_max_players);
+    ClassDB::bind_method(D_METHOD("set_private", "newPrivate"), &YNet::set_private);
+    ClassDB::bind_method(D_METHOD("set_can_host_migrate", "newCanHostMigrate"), &YNet::set_can_host_migrate);
+    ClassDB::bind_method(D_METHOD("set_room_name", "newRoomName"), &YNet::set_room_name);
+    ClassDB::bind_method(D_METHOD("set_extra_info", "new_extra_info"), &YNet::set_extra_info);
+    ClassDB::bind_method(D_METHOD("get_room_info", "roomCode"), &YNet::get_room_info, DEFVAL(""));
+    ClassDB::bind_method(D_METHOD("get_room_list"), &YNet::get_room_list);
 
     ClassDB::bind_method(D_METHOD("add_network_spawnable","spawnable_path"), &YNet::add_network_spawnable);
     ClassDB::bind_method(D_METHOD("clear_all_spawned_network_nodes"), &YNet::clear_all_spawned_network_nodes);
@@ -339,6 +358,7 @@ void YNet::setup_node() {
     //r_options->push_back(ImportOption(PropertyInfo(Variant::ARRAY, "fallbacks", PROPERTY_HINT_ARRAY_TYPE, PROPERTY_HINT_NODE_TYPE), Array()));
     add_setting("YNet/settings/network_spawnable_scenes", TypedArray<String>(), Variant::Type::ARRAY, PROPERTY_HINT_ARRAY_TYPE,
             vformat("%s/%s:",Variant::Type::STRING, PROPERTY_HINT_FILE));
+    add_setting("YNet/settings/sync_interval", 0.025f, Variant::Type::FLOAT, PROPERTY_HINT_RANGE,"0.001,0.5,0.001");
 
     if(!already_setup_in_tree && SceneTree::get_singleton() != nullptr) {
         bool is_enabled = GLOBAL_GET("YNet/settings/enabled");
@@ -1003,8 +1023,12 @@ bool YNet::socketio_parse_packet(String& payload) {
                 on_room_players(array[0]);
             } else if (event_hash == roomerror_event) {
                 on_room_error(event_payload);
-            }else if (event_hash == leftroom) {
+            } else if (event_hash == leftroom) {
                 on_left_room();
+            } else if (event_hash == roominfo) {
+                on_room_info(event_payload);
+            } else if (event_hash == roomlist) {
+                on_room_list(event_payload);
             } else if (event_hash == playerjoin_event) {
                 on_player_join(event_payload);
             } else if (event_hash == playerleft_event) {
@@ -1105,6 +1129,7 @@ Error YNet::join_or_create_room(const String &join_room) {
     socketio_send("joinOrCreateRoom",join_room);
     return OK;
 }
+
 Error YNet::join_room(const String &join_room) {
     socketio_send("joinroom",join_room);
     return OK;
@@ -1115,6 +1140,72 @@ Error YNet::leave_room() {
     clear_unhandled_packets();
     room_id = "";
     return OK;
+}
+
+Error YNet::join_room_with_password(const String &roomCode, const String &password) {
+    Array payload;
+    payload.push_back(roomCode);
+    payload.push_back(password);
+    socketio_send("joinroomwithpassword", payload);
+    return OK;
+}
+
+Error YNet::set_password(const String &newPassword) {
+    Array payload;
+    payload.push_back(get_room_id());
+    payload.push_back(newPassword);
+    socketio_send("set_password",  payload);
+    return OK;
+}
+
+Error YNet::set_max_players(int newMaxPlayers) {
+    Array payload;
+    payload.push_back(get_room_id());
+    payload.push_back(newMaxPlayers);
+    socketio_send("set_max_players", payload);
+    return OK;
+}
+
+Error YNet::set_private(bool newPrivate) {
+    Array payload;
+    payload.push_back(get_room_id());
+    payload.push_back(newPrivate);
+    socketio_send("set_private", payload);
+    return OK;
+}
+
+Error YNet::set_can_host_migrate(bool newCanHostMigrate) {
+    Array payload;
+    payload.push_back(get_room_id());
+    payload.push_back(newCanHostMigrate);
+    socketio_send("set_can_host_migrate", payload);
+    return OK;
+}
+
+Error YNet::set_room_name(const String &newRoomName) {
+    Array payload;
+    payload.push_back(get_room_id());
+    payload.push_back(newRoomName);
+    socketio_send("set_room_name", payload);
+    return OK;
+}
+
+Error YNet::set_extra_info(const String &new_extra_info) {
+    Array payload;
+    payload.push_back(get_room_id());
+    payload.push_back(new_extra_info);
+    socketio_send("set_extra_info", payload);
+    return OK;
+}
+
+YNet* YNet::get_room_info(const String &roomCode) {
+    socketio_send("get_room_info", roomCode.is_empty() ? room_id : roomCode);
+    return this;
+}
+
+YNet* YNet::get_room_list() {
+    socketio_send("get_room_list", protocol);
+    return this;
 }
 
 void YNet::on_room_created(const String &p_new_room_id) {
@@ -1162,6 +1253,14 @@ void YNet::on_left_room() {
         print_line("on_left_room ");
     emit_signal(SNAME("room_disconnected"),hashed_sid);
     room_id = "";
+}
+
+void YNet::on_room_info(const Variant &p_room_info) {
+    emit_signal("room_info",p_room_info);
+}
+
+void YNet::on_room_list(const Variant &p_room_list) {
+    emit_signal("room_list",p_room_list);
 }
 
 void YNet::on_room_players(const Array &players_array) {

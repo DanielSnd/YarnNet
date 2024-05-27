@@ -22,11 +22,12 @@ class YNetPropertySyncer : public RefCounted {
 
 protected:
     static void _bind_methods();
+    ObjectID target;
+    Vector<StringName> property;
+    Variant current_val;
 
 public:
-    YNetPropertySyncer() {
-
-    }
+    YNetPropertySyncer(const Object *p_target, const Vector<StringName> &p_property);
 };
 
 class YNet : public Node {
@@ -157,6 +158,8 @@ public:
     uint32_t newhost_event     = String{"newhost"    }.hash();
     uint32_t leftroom          = String{"leftroom"   }.hash();
     uint32_t pkt               = String{"pkt"        }.hash();
+    uint32_t roomlist          = String{"roomlist"   }.hash();
+    uint32_t roominfo          = String{"roominfo"   }.hash();
 
     List<Packet> unhandled_packets;
 
@@ -277,6 +280,8 @@ public:
 
     void despawn_node(const Node *node_to_despawn);
 
+    void register_sync(const Node *node_to_despawn);
+
     String host_id;
     String get_host_id() const {return host_id;}
     void set_host_id(String val) {host_id = val;}
@@ -346,11 +351,34 @@ public:
 
     Error join_room(const String &p_join_room);
     Error leave_room();
+
+    Error join_room_with_password(const String &roomCode, const String &password);
+
+    Error set_password(const String &newPassword);
+
+    Error set_max_players(int newMaxPlayers);
+
+    Error set_private(bool newPrivate);
+
+    Error set_can_host_migrate(bool newCanHostMigrate);
+
+    Error set_room_name(const String &newRoomName);
+
+    Error set_extra_info(const String &new_extra_info);
+
+    YNet* get_room_info(const String &roomCode);
+
+    YNet* get_room_list();
+
     void on_room_created(const String &p_new_room_id);
     void on_room_joined(const String &p_new_room_id, const String &p_host_id);
     void on_room_error(const String &p_room_id);
 
     void on_left_room();
+
+    void on_room_info(const Variant &p_room_info);
+
+    void on_room_list(const Variant &p_room_list);
 
     void on_room_players(const Array &players_array);
 

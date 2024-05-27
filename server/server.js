@@ -279,7 +279,9 @@ io.on('connection', (socket) => {
 
     socket.on('get_room_info', (roomCode) => {
         if (rooms[roomCode]) {
-            socket.emit("roominfo",rooms[roomCode])
+            let roomCopy = {...rooms[roomCode]};  // copy the object
+            delete roomCopy.password;             // delete the password property from the new object
+            socket.emit("roominfo",roomCopy)
         } else {
             console.log(`Invalid room: ${roomCode}`);
         }
@@ -370,11 +372,7 @@ function handlePlayerLeavingRoom(socket) {
                         }
                     } else {
                         io.to(roomCode).emit('roomerror', "The Host Left");
-                        for (const socket in rooms[roomCode].clients) {
-                            if (socket) {
-                                socket.disconnect(); // disconnect the socket
-                            }
-                        }
+                        io.in(roomCode).disconnectSockets(true);
                         delete rooms[roomCode];
                     }
                 }
