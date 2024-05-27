@@ -334,7 +334,7 @@ public:
     enum {
         DEFAULT_BUFFER_SIZE = 65535,
     };
-    Error engineio_connect(String url);
+    YNet* engineio_connect(String url);
 
     void create_client();
 

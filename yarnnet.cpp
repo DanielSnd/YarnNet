@@ -615,7 +615,7 @@ void YNet::despawn_node(const Node* node_to_despawn) {
     despawn(net_id_despawning);
 }
 
-Error YNet::engineio_connect(String _url) {
+YNet* YNet::engineio_connect(String _url) {
     if(!ynet_settings_enabled) {
         ERR_PRINT("[YNet] Attempting to connect while YNet is disabled on project settings");
     }
@@ -643,11 +643,12 @@ Error YNet::engineio_connect(String _url) {
         if (client->get_ready_state() != STATE_CLOSED) {
             engineio_disconnect();
             ERR_PRINT("[YNet] Called connect when already connected");
-            return ERR_BUG;
+            emit_signal(SNAME("connected"),"",false);
+            return this;
         }
     }
 
-    ERR_FAIL_COND_V(client.is_null(), ERR_BUG);
+    ERR_FAIL_COND_V(client.is_null(), this);
 
     Vector<String> protocols;
     protocols.push_back("binary"); // Compatibility for emscripten TCP-to-WebSocket.
@@ -662,11 +663,12 @@ Error YNet::engineio_connect(String _url) {
     if (err != OK) {
         set_current_state(State::STATE_CLOSED);
         print_line("ERROR! ",err);
+        emit_signal(SNAME("connected"),"",false);
     }
 
-    ERR_FAIL_COND_V(err != OK, err);
+    ERR_FAIL_COND_V(err != OK, this);
     set_process(true);
-    return err;
+    return this;
 }
 
 void YNet::create_client() {

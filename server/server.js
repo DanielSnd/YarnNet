@@ -344,6 +344,18 @@ io.on('connection', (socket) => {
         }
     });
 
+    socket.on('kickid', (roomCode, kick_id) => {
+        if (rooms[roomCode] && rooms[roomCode].host === socket.id) {
+            const clients = Object.keys(rooms[roomCode].clients);
+            if (clients.includes(kick_id)) {
+                io.sockets.sockets.get(kick_id).disconnect(true);
+                console.log(`Host ${socket.id} kicked ${kick_id} in room: ${roomCode}`);
+            }
+        } else {
+            console.log(`Invalid host or no host found for room code: ${roomCode}`);
+        }
+    });
+
     socket.on('pkt2cid', (roomCode, targetSocketId, packetcontent) => {
         //console.log(`Received 'pkt2cid' event for socket id: ${targetSocketId} in room: ${roomCode} content ${packetcontent}`);
         // Check if the current socket is the host

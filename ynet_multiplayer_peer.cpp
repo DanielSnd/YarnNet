@@ -41,7 +41,13 @@ void YnetMultiplayerPeer::close() {
 }
 
 void YnetMultiplayerPeer::disconnect_peer(int p_peer_id, bool p_force) {
-    //TODO: HANDLE KICK
+    if (peers_map.has(p_peer_id)) {
+        String peer_string_id = get_string_id(p_peer_id);
+        Array payload;
+        payload.push_back(ynet->room_id);
+        payload.push_back(peer_string_id);
+        ynet->socketio_send("kickid",payload);
+    }
 }
 
 void YnetMultiplayerPeer::poll() {
@@ -116,13 +122,10 @@ MultiplayerPeer::ConnectionStatus YnetMultiplayerPeer::get_connection_status() c
     switch (current_state) {
         case YNet::STATE_CONNECTING:
             return CONNECTION_CONNECTING;
-            break;
         case YNet::STATE_OPEN:
             return CONNECTION_CONNECTED;
-            break;
         case YNet::STATE_CLOSING:
             return CONNECTION_DISCONNECTED;
-            break;
         case YNet::STATE_CLOSED:
             return CONNECTION_DISCONNECTED;
     }
