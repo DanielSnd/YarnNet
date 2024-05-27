@@ -157,6 +157,13 @@ io.on('connection', (socket) => {
         createNewRoom(roomCode, protocol, socket);
     });
 
+    socket.on('createroomwithcode', (roomCode, protocol) => {
+        if (rooms[roomCode]){
+            socket.emit('roomerror',`Room with code ${roomCode} already exists`);
+        } else {
+            createNewRoom(roomCode, protocol, socket);
+        }
+    });
 
     socket.on('joinroomwithpassword', (roomCode, roompassword) => {
         handleRoomJoin(roomCode, socket, roompassword)

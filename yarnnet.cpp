@@ -118,6 +118,7 @@ void YNet::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_new_network_id"), &YNet::get_new_network_id);
 
     ClassDB::bind_method(D_METHOD("create_room"), &YNet::create_room);
+    ClassDB::bind_method(D_METHOD("create_room_with_code", "roomcode"), &YNet::create_room_with_code);
     ClassDB::bind_method(D_METHOD("join_or_create_room", "roomcode"), &YNet::join_or_create_room, DEFVAL(""));
     ClassDB::bind_method(D_METHOD("join_room", "roomcode"), &YNet::join_room);
     ClassDB::bind_method(D_METHOD("leave_room"), &YNet::leave_room);
@@ -1123,6 +1124,14 @@ int YNet::get_max_queued_packets() {
 
 YNet* YNet::create_room() {
     socketio_send("requestroom",protocol);
+    return this;
+}
+
+YNet* YNet::create_room_with_code(const String &create_room) {
+    Array payload;
+    payload.push_back(create_room);
+    payload.push_back(protocol);
+    socketio_send("createroomwithcode",payload);
     return this;
 }
 

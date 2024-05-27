@@ -347,6 +347,8 @@ public:
 
     YNet* create_room();
 
+    YNet *create_room_with_code(const String &create_room);
+
     YNet* join_or_create_room(const String &join_room);
 
     YNet* join_room(const String &p_join_room);
