@@ -1139,13 +1139,13 @@ YNet* YNet::join_or_create_room(const String &join_room) {
     if (join_room.is_empty()) {
         socketio_send("joinOrCreateRoomRandom",protocol);
     } else {
-        socketio_send("joinOrCreateRoom",join_room);
+        socketio_send("joinOrCreateRoom",join_room + protocol);
     }
     return this;
 }
 
 YNet* YNet::join_room(const String &join_room) {
-    socketio_send("joinroom",join_room);
+    socketio_send("joinroom",join_room + protocol);
     return this;
 }
 
