@@ -140,7 +140,7 @@ Error YNet.send_yrpc(method: Callable, ...)
 ```
 Or if you would like to also run the RPC locally besides calling it remotely:
 ```gdscript
-Error send_and_receive_yrpc(method: Callable, ...) vararg
+Error YNet.send_and_receive_yrpc(method: Callable, ...) vararg
 ```
 
 Here's an example:
