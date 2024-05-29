@@ -99,6 +99,7 @@ void YNet::_bind_methods() {
     BIND_ENUM_CONSTANT(BINARY_ACK);
 
     BIND_ENUM_CONSTANT(NONE);
+    BIND_ENUM_CONSTANT(MINIMAL);
     BIND_ENUM_CONSTANT(MOSTMESSAGES);
     BIND_ENUM_CONSTANT(MESSAGESANDPING);
     BIND_ENUM_CONSTANT(ALL);
@@ -136,7 +137,7 @@ void YNet::_bind_methods() {
 
     ClassDB::bind_method(D_METHOD("set_debugging", "debugging_level"), &YNet::set_debugging);
     ClassDB::bind_method(D_METHOD("get_debugging"), &YNet::get_debugging);
-    ADD_PROPERTY(PropertyInfo(Variant::INT, "debugging", PROPERTY_HINT_ENUM, "None,MostMessages,MesssagesAndPings,All"), "set_debugging", "get_debugging");
+    ADD_PROPERTY(PropertyInfo(Variant::INT, "debugging", PROPERTY_HINT_ENUM, "None,Minimal,MostMessages,MesssagesAndPings,All"), "set_debugging", "get_debugging");
 
     ClassDB::bind_method(D_METHOD("set_is_host", "status"), &YNet::set_is_host);
     ClassDB::bind_method(D_METHOD("get_is_host"), &YNet::get_is_host);
@@ -200,6 +201,8 @@ void YNet::_bind_methods() {
     ClassDB::bind_method(D_METHOD("clear_all_spawned_network_nodes"), &YNet::clear_all_spawned_network_nodes);
     ClassDB::bind_method(D_METHOD("register_sync_property","networked_node","property_path", "authority", "always_sync"), &YNet::register_sync_property, DEFVAL(1), DEFVAL(false));
     ClassDB::bind_method(D_METHOD("spawn","spawnable_scene","spawned_name","parent_path","global_pos","authority"), &YNet::spawn,DEFVAL(1));
+    ClassDB::bind_method(D_METHOD("spawn_with_path","spawnable_scene_path","spawned_name","parent_path","global_pos","authority"), &YNet::spawn,DEFVAL(1));
+
     //spawn(Ref<PackedScene> p_spawnable_scene, Variant p_spawn_pos, String p_spawn_name, NodePath p_desired_parent)
 
     ClassDB::bind_method(D_METHOD("rpc_spawn","network_id","packedscene_path_id","spawn_name","desired_parent_absolute_path","spawn_pos","authority"), &YNet::rpc_spawn,DEFVAL(1));
@@ -224,7 +227,6 @@ void YNet::_bind_methods() {
     {
         MethodInfo mi;
         mi.name = "send_yrpc";
-        mi.arguments.push_back(PropertyInfo(Variant::INT, "receiver_id"));
         mi.arguments.push_back(PropertyInfo(Variant::CALLABLE, "method"));
 
         ClassDB::bind_vararg_method(METHOD_FLAGS_DEFAULT, "send_yrpc", &YNet::_send_yrpc, mi);
@@ -234,7 +236,6 @@ void YNet::_bind_methods() {
     {
         MethodInfo mi;
         mi.name = "send_and_receive_yrpc";
-        mi.arguments.push_back(PropertyInfo(Variant::INT, "receiver_id"));
         mi.arguments.push_back(PropertyInfo(Variant::CALLABLE, "method"));
 
         ClassDB::bind_vararg_method(METHOD_FLAGS_DEFAULT, "send_and_receive_yrpc", &YNet::_send_and_receive_yrpc, mi);
@@ -243,8 +244,7 @@ void YNet::_bind_methods() {
     {
         MethodInfo mi;
         mi.name = "receive_yrpc";
-        mi.arguments.push_back(PropertyInfo(Variant::INT, "receiver_id"));
-        mi.arguments.push_back(PropertyInfo(Variant::STRING_NAME, "method"));
+        mi.arguments.push_back(PropertyInfo(Variant::ARRAY, "yrpc_info"));
 
         ClassDB::bind_vararg_method(METHOD_FLAGS_DEFAULT, "receive_yrpc", &YNet::_receive_yrpc, mi);
     }
@@ -252,8 +252,7 @@ void YNet::_bind_methods() {
     {
         MethodInfo mi;
         mi.name = "receive_yrpc_call_local";
-        mi.arguments.push_back(PropertyInfo(Variant::INT, "receiver_id"));
-        mi.arguments.push_back(PropertyInfo(Variant::STRING_NAME, "method"));
+        mi.arguments.push_back(PropertyInfo(Variant::ARRAY, "yrpc_info"));
 
         ClassDB::bind_vararg_method(METHOD_FLAGS_DEFAULT, "receive_yrpc_call_local", &YNet::_receive_yrpc_also_local, mi);
     }
@@ -293,81 +292,81 @@ void YNet::remove_from_yrpc_receiving_map(int p_yrpc_id) {
 }
 
 Variant YNet::_receive_yrpc(const Variant **p_args, int p_argcount, Callable::CallError &r_error) {
-    if (p_argcount < 2) {
+    if (p_argcount < 1) {
         r_error.error = Callable::CallError::CALL_ERROR_TOO_FEW_ARGUMENTS;
-        r_error.expected = 2;
+        r_error.expected = 1;
         return ERR_INVALID_PARAMETER;
     }
 
     Variant::Type itype = p_args[0]->get_type();
-    if (itype != Variant::INT) {
+    if (itype != Variant::ARRAY) {
         r_error.error = Callable::CallError::CALL_ERROR_INVALID_ARGUMENT;
         r_error.argument = 0;
-        r_error.expected = Variant::INT;
+        r_error.expected = Variant::ARRAY;
         return ERR_INVALID_PARAMETER;
     }
 
-    Variant::Type type = p_args[1]->get_type();
-    if (type != Variant::STRING_NAME && type != Variant::STRING) {
-        r_error.error = Callable::CallError::CALL_ERROR_INVALID_ARGUMENT;
-        r_error.argument = 1;
-        r_error.expected = Variant::STRING_NAME;
-        return ERR_INVALID_PARAMETER;
-    }
+    Array yrpc_info = p_args[0]->operator Array();
+    int netid = yrpc_info[0];
 
-    int objid = p_args[0]->operator int();
-
-    StringName method = (*p_args[1]).operator StringName();
-
-    if (yrpc_to_node_hash_map.has(objid)) {
-        auto node_found = ObjectDB::get_instance(yrpc_to_node_hash_map[objid]);
+    if (yrpc_to_node_hash_map.has(netid)) {
+        auto node_found = ObjectDB::get_instance(yrpc_to_node_hash_map[netid]);
         if (node_found != nullptr) {
             Node *actual_node = Object::cast_to<Node>(node_found);
-            if (actual_node != nullptr && actual_node->has_method(method)) {
-                actual_node->callp(method,&p_args[2], p_argcount - 2, r_error);
-
+            if (actual_node != nullptr) {
+                bool is_relative = yrpc_info[1];
+                StringName method = yrpc_info[is_relative ? 3 : 2];
+                if (is_relative) {
+                    actual_node = actual_node->get_node(yrpc_info[2]);
+                }
+                if (actual_node != nullptr) {
+                    if (actual_node->has_method(method)) {
+                        actual_node->callp(method,&p_args[1], p_argcount - 1, r_error);
+                    }
+                }
                 //print_line(vformat("Received yrpc id %d method %s",objid,method));
             }
         }
+
+
     }
 
     return 0;
 }
 
 Variant YNet::_receive_yrpc_also_local(const Variant **p_args, int p_argcount, Callable::CallError &r_error) {
-    if (p_argcount < 2) {
+    if (p_argcount < 1) {
         r_error.error = Callable::CallError::CALL_ERROR_TOO_FEW_ARGUMENTS;
-        r_error.expected = 2;
+        r_error.expected = 1;
         return ERR_INVALID_PARAMETER;
     }
 
     Variant::Type itype = p_args[0]->get_type();
-    if (itype != Variant::INT) {
+    if (itype != Variant::ARRAY) {
         r_error.error = Callable::CallError::CALL_ERROR_INVALID_ARGUMENT;
         r_error.argument = 0;
-        r_error.expected = Variant::INT;
+        r_error.expected = Variant::ARRAY;
         return ERR_INVALID_PARAMETER;
     }
 
-    Variant::Type type = p_args[1]->get_type();
-    if (type != Variant::STRING_NAME && type != Variant::STRING) {
-        r_error.error = Callable::CallError::CALL_ERROR_INVALID_ARGUMENT;
-        r_error.argument = 1;
-        r_error.expected = Variant::STRING_NAME;
-        return ERR_INVALID_PARAMETER;
-    }
+    Array yrpc_info = p_args[0]->operator Array();
+    int netid = yrpc_info[0];
 
-    int objid = p_args[0]->operator int();
-
-    StringName method = (*p_args[1]).operator StringName();
-
-    if (yrpc_to_node_hash_map.has(objid)) {
-        auto node_found = ObjectDB::get_instance(yrpc_to_node_hash_map[objid]);
+    if (yrpc_to_node_hash_map.has(netid)) {
+        auto node_found = ObjectDB::get_instance(yrpc_to_node_hash_map[netid]);
         if (node_found != nullptr) {
             Node *actual_node = Object::cast_to<Node>(node_found);
-            if (actual_node != nullptr && actual_node->has_method(method)) {
-                actual_node->callp(method,&p_args[2], p_argcount - 2, r_error);
-
+            if (actual_node != nullptr) {
+                bool is_relative = yrpc_info[1];
+                StringName method = yrpc_info[is_relative ? 3 : 2];
+                if (is_relative) {
+                    actual_node = actual_node->get_node(yrpc_info[2]);
+                }
+                if (actual_node != nullptr) {
+                    if (actual_node->has_method(method)) {
+                        actual_node->callp(method,&p_args[1], p_argcount - 1, r_error);
+                    }
+                }
                 //print_line(vformat("Received yrpc id %d method %s",objid,method));
             }
         }
@@ -377,73 +376,107 @@ Variant YNet::_receive_yrpc_also_local(const Variant **p_args, int p_argcount, C
 }
 
 Error YNet::_send_and_receive_yrpc(const Variant **p_args, int p_argcount, Callable::CallError &r_error) {
-    if (p_argcount < 2) {
+    if (p_argcount < 1) {
         r_error.error = Callable::CallError::CALL_ERROR_TOO_FEW_ARGUMENTS;
-        r_error.expected = 2;
+        r_error.expected = 1;
         return ERR_INVALID_PARAMETER;
     }
 
-    Variant::Type itype = p_args[0]->get_type();
-    if (itype != Variant::INT) {
-        r_error.error = Callable::CallError::CALL_ERROR_INVALID_ARGUMENT;
-        r_error.argument = 0;
-        r_error.expected = Variant::INT;
-        return ERR_INVALID_PARAMETER;
-    }
-
-    Variant::Type type = p_args[1]->get_type();
+    Variant::Type type = p_args[0]->get_type();
     if (type != Variant::CALLABLE) {
         r_error.error = Callable::CallError::CALL_ERROR_INVALID_ARGUMENT;
-        r_error.argument = 1;
+        r_error.argument = 0;
         r_error.expected = Variant::CALLABLE;
         return ERR_INVALID_PARAMETER;
     }
 
-    Callable p_callable = p_args[1]->operator Callable();
-    p_args[1] = new Variant(p_callable.get_method());
+    Callable p_callable = p_args[0]->operator Callable();
+    // p_args[0] = new Variant(p_callable.get_method());
     ERR_FAIL_COND_V(!is_inside_tree(), ERR_UNCONFIGURED);
 
-    Ref<MultiplayerAPI> api = get_multiplayer();
-    if (api.is_null()) {
+    Node* callable_object = Object::cast_to<Node>(p_callable.get_object());
+    ERR_FAIL_COND_V(callable_object == nullptr, ERR_DOES_NOT_EXIST);
+
+    int net_id = -1;
+    Node *current = callable_object;
+    while (current != nullptr) {
+        if (current->has_meta("net_id")) {
+            net_id = current->get_meta("net_id",-1);
+            break;
+        }
+        current = current->get_parent();
+    }
+
+    ERR_FAIL_COND_V(callable_object == nullptr || net_id == -1, ERR_UNCONFIGURED);
+
+    Array sending_rpc_array;
+    sending_rpc_array.push_back(net_id);
+    if (current == callable_object) {
+        sending_rpc_array.push_back(false);
+    } else {
+        sending_rpc_array.push_back(true);
+        sending_rpc_array.push_back(current->get_path_to(callable_object));
+    }
+    sending_rpc_array.push_back(p_callable.get_method());
+    p_args[0] = new Variant(sending_rpc_array);
+
+    if (scene_multiplayer.is_null()) {
         return ERR_UNCONFIGURED;
     }
 
-    return api->rpcp(this, 0, receive_yrpc_also_local_stringname, p_args, p_argcount);
+    return scene_multiplayer->rpcp(this, 0, receive_yrpc_also_local_stringname, p_args, p_argcount);
 }
 
 Error YNet::_send_yrpc(const Variant **p_args, int p_argcount, Callable::CallError &r_error) {
-    if (p_argcount < 2) {
+    if (p_argcount < 1) {
         r_error.error = Callable::CallError::CALL_ERROR_TOO_FEW_ARGUMENTS;
-        r_error.expected = 2;
+        r_error.expected = 1;
         return ERR_INVALID_PARAMETER;
     }
 
-    Variant::Type itype = p_args[0]->get_type();
-    if (itype != Variant::INT) {
-        r_error.error = Callable::CallError::CALL_ERROR_INVALID_ARGUMENT;
-        r_error.argument = 0;
-        r_error.expected = Variant::INT;
-        return ERR_INVALID_PARAMETER;
-    }
-
-    Variant::Type type = p_args[1]->get_type();
+    Variant::Type type = p_args[0]->get_type();
     if (type != Variant::CALLABLE) {
         r_error.error = Callable::CallError::CALL_ERROR_INVALID_ARGUMENT;
-        r_error.argument = 1;
+        r_error.argument = 0;
         r_error.expected = Variant::CALLABLE;
         return ERR_INVALID_PARAMETER;
     }
 
-    Callable p_callable = p_args[1]->operator Callable();
-    p_args[1] = new Variant(p_callable.get_method());
+    Callable p_callable = p_args[0]->operator Callable();
+    // p_args[0] = new Variant(p_callable.get_method());
     ERR_FAIL_COND_V(!is_inside_tree(), ERR_UNCONFIGURED);
 
-    Ref<MultiplayerAPI> api = get_multiplayer();
-    if (api.is_null()) {
+    Node* callable_object = Object::cast_to<Node>(p_callable.get_object());
+    ERR_FAIL_COND_V(callable_object == nullptr, ERR_DOES_NOT_EXIST);
+
+    int net_id = -1;
+    Node *current = callable_object;
+    while (current != nullptr) {
+        if (current->has_meta("net_id")) {
+            net_id = current->get_meta("net_id",-1);
+            break;
+        }
+        current = current->get_parent();
+    }
+
+    ERR_FAIL_COND_V(callable_object == nullptr || net_id == -1, ERR_UNCONFIGURED);
+
+    Array sending_rpc_array;
+    sending_rpc_array.push_back(net_id);
+    if (current == callable_object) {
+        sending_rpc_array.push_back(false);
+    } else {
+        sending_rpc_array.push_back(true);
+        sending_rpc_array.push_back(current->get_path_to(callable_object));
+    }
+    sending_rpc_array.push_back(p_callable.get_method());
+    p_args[0] = new Variant(sending_rpc_array);
+
+    if (scene_multiplayer.is_null()) {
         return ERR_UNCONFIGURED;
     }
 
-    return api->rpcp(this, 0, receive_yrpc_stringname, p_args, p_argcount);
+    return scene_multiplayer->rpcp(this, 0, receive_yrpc_stringname, p_args, p_argcount);
 }
 
 void YNet::setup_node() {
@@ -511,20 +544,53 @@ void YNet::internal_spawn_with_queued_struct(const NetworkSpawnedObjectInfo &p_n
 
 Variant YNet::create_spawned_lists_variant() {
     Array variant_array;
+
     for (const auto& _spawn_queued_list: queued_networked_spawned_objects) {
         variant_array.push_back(convert_nsoi_to_variant(_spawn_queued_list.value));
     }
     for (const auto& _spawned_list: networked_spawned_objects) {
         variant_array.push_back(convert_nsoi_to_variant(_spawned_list.value));
     }
+    int amount_property_syncers_added = 0;
+    // Iterate over the HashMap
+    for (auto itr = networked_property_syncers.begin(); itr != networked_property_syncers.end(); ++itr) {
+        // Get the Vector associated with the current key
+        Vector<Ref<YNetPropertySyncer>> &property_syncers = itr->value;
+        // Iterate over the Vector
+        for (int i = 0; i < property_syncers.size(); ++i) {
+            Array property_syncer_info;
+            property_syncer_info.push_back(property_syncers[i]->net_id);
+            property_syncer_info.push_back(property_syncers[i]->property_syncer_index);
+            property_syncer_info.push_back(property_syncers[i]->current_val);
+            variant_array.push_back(property_syncer_info);
+            amount_property_syncers_added++;
+        }
+    }
+
+    variant_array.push_front(Vector3i{static_cast<int>(queued_networked_spawned_objects.size()),static_cast<int>(networked_spawned_objects.size()),amount_property_syncers_added});
+
     return variant_array;
 }
 
+void YNet::unpack_property_syncer_received_value(const Array& received_property_syncer_value) {
+    HashMap<uint8_t, Variant>& inner_map = queued_received_property_syncers[received_property_syncer_value[0]];
+    inner_map[received_property_syncer_value[1]] = received_property_syncer_value[2];
+}
 
 void YNet::unpack_spawned_list_variants(const Array& received_spawned_list) {
-    for (const auto& spawn_info : received_spawned_list) {
-        unpack_spawninfo_from_variant (spawn_info);
+    const Vector3i received_info_amounts = received_spawned_list[0];
+    int received_property_values_amount = 0;
+    for (int i = 1; i < received_spawned_list.size(); ++i) {
+        if (i <= received_info_amounts.x + received_info_amounts.y) {
+            unpack_spawninfo_from_variant (received_spawned_list[i]);
+        } else {
+            unpack_property_syncer_received_value(received_spawned_list[i]);
+            received_property_values_amount += 1;
+        }
     }
+
+    if (debugging >= DebuggingLevel::MINIMAL)
+        print_line(vformat("[YNet] Received spawn list. [%d] Network Spawns [%d] Queued Network Spawns [%d obj %d prop] Queued Sync Properties for objects",networked_spawned_objects.size(), queued_networked_spawned_objects.size(), queued_received_property_syncers.size(), received_property_values_amount));
 }
 
 Variant YNet::convert_nsoi_to_variant(const NetworkSpawnedObjectInfo &p_nsoi) {
@@ -666,6 +732,12 @@ void YNet::set_authority_after_entered(Node* node_entered_tree, int authority) {
     }
 }
 
+Node *YNet::spawn_with_path(const String &p_spawnable_scene_path, const String &p_spawn_name, const NodePath &p_desired_parent, const Variant &p_spawn_pos, int authority) {
+    ERR_FAIL_COND_V_MSG(!get_multiplayer()->is_server(), nullptr, "ERROR: Attempted to spawn a networked node from a client");
+    Ref<PackedScene> ps = ResourceLoader::load(p_spawnable_scene_path);
+    ERR_FAIL_COND_V_MSG(ps.is_null() || !ps.is_valid(), nullptr, "ERROR: Attempted to spawn a invalid or null packed scene");
+    return internal_spawn(get_new_network_id(),ps, p_spawn_name, p_desired_parent, p_spawn_pos, authority);
+}
 Node *YNet::spawn(const Ref<PackedScene> &p_spawnable_scene, const String &p_spawn_name, const NodePath &p_desired_parent, const Variant &p_spawn_pos, int authority) {
     ERR_FAIL_COND_V_MSG(!get_multiplayer()->is_server(), nullptr, "ERROR: Attempted to spawn a networked node from a client");
     return internal_spawn(get_new_network_id(),p_spawnable_scene, p_spawn_name, p_desired_parent, p_spawn_pos, authority);
@@ -690,8 +762,16 @@ void YNet::rpc_respond_with_spawned_nodes(const Array& spawned_nodes_info) {
 }
 
 void YNet::rpc_despawn(int p_network_id) {
+    if (yrpc_to_node_hash_map.has(p_network_id))
+        yrpc_to_node_hash_map.erase(p_network_id);
     if (networked_property_syncers.has(p_network_id)) {
         networked_property_syncers.erase(p_network_id);
+        if (queued_received_property_syncers.has(p_network_id)) {
+            queued_received_property_syncers.erase(p_network_id);
+        }
+        if (queued_to_send_property_syncers.has(p_network_id)) {
+            queued_to_send_property_syncers.erase(p_network_id);
+        }
     }
     if (queued_networked_spawned_objects.has(p_network_id)) {
         queued_networked_spawned_objects.erase(p_network_id);
@@ -728,9 +808,12 @@ void YNet::despawn(int p_network_id) {
     rpcp(0,rpc_despawn_stringname,argptrs,argcount);
 }
 
-void YNet::despawn_node(const Node* node_to_despawn) {
+void YNet::despawn_node(Node* node_to_despawn) {
     ERR_FAIL_COND_MSG(node_to_despawn == nullptr, "ERROR: Attempted to despawn a null node");
-    ERR_FAIL_COND_MSG(!node_to_despawn->has_meta("net_id"), "ERROR: Attempted to despawn a node without a networked id");
+    if (!node_to_despawn->has_meta("net_id")) {
+        node_to_despawn->queue_free();
+        return;
+    }
     int net_id_despawning = node_to_despawn->get_meta("net_id",0);
     despawn(net_id_despawning);
 }
@@ -875,11 +958,8 @@ void YNet::received_sync_packet(int received_from, const Vector<uint8_t> &p_buff
                     //print_line("Setting current value for property index");
                     networked_property_syncers[net_id][property_index_received]->set_current_val(v);
                 } else {
-                    if (!queued_received_property_syncers.has(net_id)) {
-                        HashMap<uint8_t, Variant> _rec_property_values;
-                        queued_received_property_syncers[net_id] = _rec_property_values;
-                    }
-                    queued_received_property_syncers[net_id][property_index_received] = v;
+                    HashMap<uint8_t, Variant>& inner_map = queued_received_property_syncers[net_id];
+                    inner_map[property_index_received] = v;
                 }
             }
         }
@@ -1107,7 +1187,7 @@ bool YNet::engineio_decode_packet(const uint8_t* packet, int len){
     packet_payload = packet_payload.substr(1);
     switch (packetType) {
         case open: {
-            if(debugging>0) print_line("[YNet] Received engine.IO open package");
+            if(debugging>1) print_line("[YNet] Received engine.IO open package");
             JSON json;
             ERR_FAIL_COND_V_MSG(json.parse(packet_payload) != OK, false, "[YNet] Malformed open message!");
             Dictionary params = json.get_data();
@@ -1118,13 +1198,13 @@ bool YNet::engineio_decode_packet(const uint8_t* packet, int len){
             pingInterval = params.get(key_pingInterval,500);
             pingTimeout = params.get(key_pingTimeout,3000);
             set_current_state(State::STATE_OPEN);
-            if(debugging>0) print_line("[YNet] Connected to engine.io, SID ",sid," hashed ",hashed_sid," ping interval ",pingInterval, " ping timeout ",pingTimeout);
+            if(debugging>1) print_line("[YNet] Connected to engine.io, SID ",sid," hashed ",hashed_sid," ping interval ",pingInterval, " ping timeout ",pingTimeout);
             //(SNAME("engine_connection_result"),sid,true);
             socketio_connect();
         }
             break;
         case close: {
-            if(debugging>0) print_line("[YNet] Received engine.IO close package");
+            if(debugging>1) print_line("[YNet] Received engine.IO close package");
         }
             break;
         case ping: {
@@ -1143,11 +1223,11 @@ bool YNet::engineio_decode_packet(const uint8_t* packet, int len){
         }
             break;
         case upgrade: {
-            if(debugging>0) print_line("[YNet] Received engine.IO upgrade package");
+            if(debugging>1) print_line("[YNet] Received engine.IO upgrade package");
         }
             break;
         case noop: {
-            if(debugging>0) print_line("[YNet] Received noop message");
+            if(debugging>1) print_line("[YNet] Received noop message");
         }
             break;
         default:
@@ -1346,7 +1426,7 @@ void YNet::update_last_engine_state() {
     }
     if (last_engine_state != client->get_ready_state()) {
         last_engine_state = static_cast<State>(static_cast<int>(client->get_ready_state()));
-        if(debugging >= 1) {
+        if(debugging > 1) {
             switch ((State)last_engine_state) {
                 case STATE_CONNECTING:
                     print_line("[YNet] Engine.io status is now: Connecting");
@@ -1595,7 +1675,7 @@ void YNet::on_room_list(const Variant &p_room_list) {
 }
 
 void YNet::on_room_players(const Array &players_array) {
-    if(debugging > 0)
+    if(debugging > 1)
         print_line(vformat("on_room_players %s",players_array));
     for (int i = 0; i < players_array.size(); i++)
         if (const auto& _player = players_array[i]; _player.get_type() == Variant::STRING && !connections_map.has(_player))
@@ -1605,14 +1685,14 @@ void YNet::on_room_players(const Array &players_array) {
 }
 
 void YNet::on_player_join(const String &p_player) {
-    if(debugging > 0)
+    if(debugging > 1)
         print_line("on_player_join ",p_player," ",string_to_hash_id(p_player));
     connections_map[p_player] = string_to_hash_id(p_player);
     emit_signal(SNAME("player_joined"),p_player);
 }
 
 void YNet::on_received_pkt(const String &received_from, const String &pkt_content) {
-    if(debugging > 0)
+    if(debugging > DebuggingLevel::MOSTMESSAGES)
         print_line("on_received_pkt from ",received_from," content: ",pkt_content);
 
     int strlen = pkt_content.length();
@@ -1640,7 +1720,7 @@ void YNet::on_received_pkt(const String &received_from, const String &pkt_conten
 }
 
 void YNet::on_player_left(const String &p_player) {
-    if(debugging > 0)
+    if(debugging > 1)
         print_line("on_player_left ",p_player);
     if (connections_map.has(p_player))
         connections_map.erase(p_player);
@@ -1649,7 +1729,7 @@ void YNet::on_player_left(const String &p_player) {
 
 #ifdef HOST_MIGRATION
 void YNet::on_host_migrated(const String &p_new_host) {
-    if(debugging > 0)
+    if(debugging > 1)
         print_line("on_host_migrated ",p_new_host);
     host_id = p_new_host;
     host_id_hashed = string_to_hash_id(p_new_host);

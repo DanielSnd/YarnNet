@@ -157,9 +157,10 @@ public:
 
     enum DebuggingLevel {
         NONE = 0,
-        MOSTMESSAGES = 1,
-        MESSAGESANDPING = 2,
-        ALL = 3
+        MINIMAL = 1,
+        MOSTMESSAGES = 2,
+        MESSAGESANDPING = 3,
+        ALL = 4
     };
 
     const String key_sid = "sid";
@@ -299,12 +300,17 @@ public:
 
     void set_authority_after_entered(Node *node_entered_tree, int authority);
 
+    Node *spawn_with_path(const String &p_spawnable_scene_path, const String &p_spawn_name,
+                          const NodePath &p_desired_parent, const Variant &p_spawn_pos, int authority);
+
     void rpc_spawn(int network_id, const uint32_t &p_spawnable_path_id, const String &p_spawn_name, const String &p_desired_parent,
                    const Variant &p_spawn_pos, int authority);
 
     void internal_spawn_with_queued_struct(const NetworkSpawnedObjectInfo &p_nsoi);
 
     Variant create_spawned_lists_variant();
+
+    void unpack_property_syncer_received_value(const Array &received_property_syncer_value);
 
     void unpack_spawned_list_variants(const Array &received_spawned_list);
 
@@ -322,7 +328,7 @@ public:
 
     void despawn(int network_id);
 
-    void despawn_node(const Node *node_to_despawn);
+    void despawn_node(Node *node_to_despawn);
 
     void test_send_sync();
 
@@ -352,7 +358,7 @@ public:
             if (status != STATE_OPEN) {
                 room_id = "";
             }
-            if (debugging >= 1) {
+            if (debugging >= 2) {
                 switch ((State)status) {
                     case STATE_CONNECTING:
                         print_line("[YNet] Status is now: Connecting");
