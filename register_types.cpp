@@ -13,6 +13,7 @@ void initialize_yarnnet_module(ModuleInitializationLevel p_level) {
  			return;
    }
  	ClassDB::register_class<YNet>();
+	ClassDB::register_class<YNetPropertySyncer>();
 	// Initialize your singleton.
 	YNetPtr = memnew(YNet);
 

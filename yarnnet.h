@@ -12,6 +12,7 @@
 #include "scene/main/multiplayer_peer.h"
 #include <cstring>
 
+#include "modules/multiplayer/scene_multiplayer.h"
 #include "scene/resources/packed_scene.h"
 #include "scene/3d/node_3d.h"
 #include "scene/2d/node_2d.h"
@@ -22,12 +23,24 @@ class YNetPropertySyncer : public RefCounted {
 
 protected:
     static void _bind_methods();
-    ObjectID target;
-    Vector<StringName> property;
-    Variant current_val;
 
 public:
-    YNetPropertySyncer(const Object *p_target, const Vector<StringName> &p_property);
+    YNetPropertySyncer();
+
+    uint8_t property_syncer_index;
+    ObjectID target;
+    Vector<StringName> property;
+    int net_id;
+    Variant current_val;
+    int authority;
+    bool sync_always;
+
+    static uint32_t get_property_syncer_id_from_property_stringnames(const Vector<StringName> &p_property);
+    void set_current_val(const Variant &new_value);
+    bool check_for_changed_value();
+
+    YNetPropertySyncer(int p_net_id, Object *p_target, const Vector<StringName> &p_property, const Variant &p_val, int authority, bool p_sync_always);
+    ~YNetPropertySyncer();
 };
 
 class YNet : public Node {
@@ -36,12 +49,16 @@ class YNet : public Node {
 protected:
     static void _bind_methods();
 
+    Ref<SceneMultiplayer> scene_multiplayer;
+    Ref<YNetPropertySyncer> register_sync_property(Node *p_target, const NodePath &p_property, int authority, bool p_always_sync);
+
     struct NetworkSpawnedObjectInfo {
         int network_instance_id;
         uint32_t spawnable_scene_id;
         String spawned_name;
         ObjectID SpawnedNodeId;
         NodePath desired_parent;
+        int authority;
         int spawn_pos_x;
         int spawn_pos_y;
         int spawn_pos_z;
@@ -56,8 +73,10 @@ protected:
     StringName rpc_despawn_stringname;
     StringName rpc_request_spawned_nodes_stringname;
     StringName rpc_respond_with_spawned_nodes_stringname;
+    StringName rpc_rec_synced_vars_stringname;
 
     int count_to_check_should_spawn = 0;
+
 
     void _notification(int p_what);
 
@@ -66,6 +85,10 @@ protected:
     void clear_all_spawned_network_nodes();
 
     void on_connected_to_server();
+
+    void on_received_peer_packet(int packet_from, const Vector<uint8_t> &packet_received);
+
+    void received_sync_packet(int received_from, const Vector<uint8_t> &_packet);
 
     Dictionary create_rpc_dictionary_config(MultiplayerAPI::RPCMode p_rpc_mode,
                                             MultiplayerPeer::TransferMode p_transfer_mode, bool p_call_local,
@@ -176,8 +199,25 @@ public:
 
     int next_networked_spawn_id = 1;
 
+    Vector<uint8_t> packet_cache;
+
+    enum NetworkNodeIdCompression {
+        NETWORK_NODE_ID_COMPRESSION_8 = 0,
+        NETWORK_NODE_ID_COMPRESSION_16,
+        NETWORK_NODE_ID_COMPRESSION_32,
+    };
     HashMap<int,NetworkSpawnedObjectInfo> queued_networked_spawned_objects;
     HashMap<int,NetworkSpawnedObjectInfo> networked_spawned_objects;
+    HashMap<int,int> networked_id_to_authority;
+    HashMap<int,Vector<Ref<YNetPropertySyncer>>> networked_property_syncers;
+    HashMap<int,HashMap<uint8_t,Variant>> queued_received_property_syncers;
+    HashMap<int,HashMap<uint8_t,Variant>> queued_to_send_property_syncers;
+
+    uint64_t last_sent_synced_vars;
+    uint64_t last_watched_synced_vars;
+
+    uint64_t watch_synced_vars_interval;
+    uint64_t send_synced_vars_interval;
 
     HashMap<uint32_t,String> spawnables_dictionary;
 
@@ -215,9 +255,11 @@ public:
         }
         return room_id;
     }
+
     void set_room_id_without_protocol(String val) {
         room_id = val + protocol;
     }
+
     int pingTimeout = 0;
     int get_ping_timeout() const {return pingTimeout;}
     void set_ping_timeout(int val) {pingTimeout = val;}
@@ -244,7 +286,7 @@ public:
     bool get_offline_mode() const {return offline_mode;}
     void set_offline_mode(bool val) {offline_mode = val;}
 
-    int last_used_id = 0;
+    int last_used_id = 1;
     int get_last_used_id() const {return last_used_id;}
     void set_last_used_id(int val) {last_used_id = val;}
 
@@ -253,10 +295,12 @@ public:
     void set_is_host(bool val) {}
 
     Node *internal_spawn(int network_id, const Ref<PackedScene> &p_spawnable_scene, const String &p_spawn_name,
-                         const NodePath &p_desired_parent, Variant p_spawn_pos);
+                         const NodePath &p_desired_parent, const Variant &p_spawn_pos, int authority);
+
+    void set_authority_after_entered(Node *node_entered_tree, int authority);
 
     void rpc_spawn(int network_id, const uint32_t &p_spawnable_path_id, const String &p_spawn_name, const String &p_desired_parent,
-                   Variant p_spawn_pos);
+                   const Variant &p_spawn_pos, int authority);
 
     void internal_spawn_with_queued_struct(const NetworkSpawnedObjectInfo &p_nsoi);
 
@@ -268,7 +312,7 @@ public:
 
     void unpack_spawninfo_from_variant(const Array &received_spawn_info);
 
-    Node *spawn(const Ref<PackedScene> &p_spawnable_scene, const String &p_spawn_name, const NodePath &p_desired_parent, Variant p_spawn_pos);
+    Node *spawn(const Ref<PackedScene> &p_spawnable_scene, const String &p_spawn_name, const NodePath &p_desired_parent, const Variant &p_spawn_pos, int authority);
 
     void rpc_request_spawned_nodes(int p_id_requesting);
 
@@ -280,7 +324,10 @@ public:
 
     void despawn_node(const Node *node_to_despawn);
 
-    void register_sync(const Node *node_to_despawn);
+    void test_send_sync();
+
+    void send_sync_vars(uint64_t p_cur_usec);
+    void rpc_recv_sync_vars(Variant p_synced_vars_data);
 
     String host_id;
     String get_host_id() const {return host_id;}
@@ -390,8 +437,6 @@ public:
 
     void on_player_left(const String &p_player);
 
-    int string_to_hash(const String &str);
-
 #ifdef HOST_MIGRATION
     void on_host_migrated(const String &p_new_host);
 #endif
@@ -401,22 +446,7 @@ public:
     HashMap<String,int> connections_map;
 
     bool received_any_packet = false;
-    uint32_t string_to_hash_id(const String &p_string) {
-        /* simple djb2 hashing */
-
-        const char32_t *chr = p_string.get_data();
-        uint32_t hashv = 5381;
-        uint32_t c = *chr++;
-
-        while (c) {
-            hashv = (((hashv) << 5) + hashv) + c; /* hash * 33 + c */
-            c = *chr++;
-        }
-
-        hashv = hash_fmix32(hashv);
-        hashv = hashv & 0x7FFFFFFF; // Make it compatible with unsigned, since negative ID is used for exclusion
-        return hashv;
-    }
+    static uint32_t string_to_hash_id(const String &p_string);
 
     static YNet* get_singleton();
     YNet();

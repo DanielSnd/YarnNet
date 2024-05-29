@@ -10,7 +10,76 @@ void YNetPropertySyncer::_bind_methods() {
 
 }
 
-YNetPropertySyncer::YNetPropertySyncer(const Object *p_target, const Vector<StringName> &p_property) {
+YNetPropertySyncer::YNetPropertySyncer(): net_id(0), property_syncer_index(0), authority(false), sync_always(false) {
+}
+
+uint32_t YNetPropertySyncer::get_property_syncer_id_from_property_stringnames(const Vector<StringName> &p_property) {
+    String combine_p_property;
+    for (const auto & p : p_property) {
+        combine_p_property += p;
+    }
+    return YNet::string_to_hash_id(combine_p_property);
+}
+
+void YNetPropertySyncer::set_current_val(const Variant &new_value) {
+    current_val = new_value;
+    Node *actual_node = Object::cast_to<Node>(ObjectDB::get_instance(target));
+    if (actual_node != nullptr) {
+        actual_node->set_indexed(property, new_value);
+    }
+}
+
+bool YNetPropertySyncer::check_for_changed_value() {
+    if (const Node *actual_node = Object::cast_to<Node>(ObjectDB::get_instance(target)); actual_node != nullptr) {
+        Variant current_property_val = actual_node->get_indexed(property);
+        if(!current_val.hash_compare(current_property_val)) {
+            current_val = current_property_val;
+            return true;
+        }
+    } else {
+        print_line(vformat("Check for changed value on netpropertysyncer missing node netid %d property index %d",net_id,property_syncer_index));
+    }
+    return false;
+}
+
+YNetPropertySyncer::YNetPropertySyncer(int p_net_id, Object *p_target, const Vector<StringName> &p_property, const Variant &p_val, int p_authority, bool p_sync_always) {
+    net_id = p_net_id;
+    if (p_target != nullptr) {
+        target = p_target->get_instance_id();
+    }
+    property = p_property;
+    authority = p_authority;
+    auto ynet_singleton = YNet::get_singleton();
+
+    if (ynet_singleton == nullptr) return;
+
+    // If the outer_key doesn't exist in the outer HashMap, it would default construct an inner Vector
+    Vector<Ref<YNetPropertySyncer>>& inner_map = ynet_singleton->networked_property_syncers[net_id];
+    property_syncer_index = inner_map.size();
+
+    inner_map.push_back(this);
+
+    // print_line("Added property syncer, new size is ",ynet_singleton->networked_property_syncers[net_id].size());
+
+    current_val = p_val;
+
+    if (ynet_singleton->queued_received_property_syncers.has(net_id) && ynet_singleton->queued_received_property_syncers[net_id].has(property_syncer_index)) {
+            current_val = ynet_singleton->queued_received_property_syncers[net_id][property_syncer_index];
+            p_target->set_indexed(property,current_val);
+            ynet_singleton->queued_received_property_syncers[net_id].erase(property_syncer_index);
+    }
+    sync_always = p_sync_always;
+}
+
+YNetPropertySyncer::~YNetPropertySyncer() {
+    auto ynet_singleton = YNet::get_singleton();
+    if (ynet_singleton == nullptr) return;
+    if (ynet_singleton->networked_property_syncers.has(net_id)) {
+        ynet_singleton->networked_property_syncers[net_id].erase(this);
+        if (ynet_singleton->networked_property_syncers[net_id].size() == 0) {
+            ynet_singleton->networked_property_syncers.erase(net_id);
+        }
+    }
 }
 
 void YNet::_bind_methods() {
@@ -39,9 +108,7 @@ void YNet::_bind_methods() {
     ADD_SIGNAL(MethodInfo("room_disconnected", PropertyInfo(Variant::INT, "id")));
     ADD_SIGNAL(MethodInfo("room_info", PropertyInfo(Variant::DICTIONARY, "info")));
     ADD_SIGNAL(MethodInfo("room_list", PropertyInfo(Variant::ARRAY, "list")));
-    //ADD_SIGNAL(MethodInfo("engine_status_changed", PropertyInfo(Variant::INT, "status")));
     ADD_SIGNAL(MethodInfo("status_changed", PropertyInfo(Variant::INT, "status")));
-    //ADD_SIGNAL(MethodInfo("engine_connection_result", PropertyInfo(Variant::STRING, "sid"), PropertyInfo(Variant::BOOL, "result")));
     ADD_SIGNAL(MethodInfo("disconnected", PropertyInfo(Variant::INT, "code"),PropertyInfo(Variant::STRING, "reason")));
     ADD_SIGNAL(MethodInfo("engine_message", PropertyInfo(Variant::STRING, "payload")));
     ADD_SIGNAL(MethodInfo("room_created", PropertyInfo(Variant::STRING, "new_room_id")));
@@ -55,21 +122,17 @@ void YNet::_bind_methods() {
 #endif
 
     ADD_SIGNAL(MethodInfo("connected", PropertyInfo(Variant::STRING, "name_space"), PropertyInfo(Variant::BOOL, "result")));
-    //ADD_SIGNAL(MethodInfo("disconnected", PropertyInfo(Variant::STRING, "name_space")));
     ADD_SIGNAL(MethodInfo("event", PropertyInfo(Variant::STRING, "event_name"),PropertyInfo(Variant::OBJECT, "payload"),PropertyInfo(Variant::STRING, "name_space")));
 
     ClassDB::bind_method(D_METHOD("setup_node"), &YNet::setup_node);
     ClassDB::bind_method(D_METHOD("ynet_connect", "url"), &YNet::engineio_connect);
     ClassDB::bind_method(D_METHOD("ynet_disconnect"), &YNet::engineio_disconnect);
 
-    ClassDB::bind_method(D_METHOD("string_to_hash_id","str"), &YNet::string_to_hash_id);
+    ClassDB::bind_static_method("YNet",D_METHOD("string_to_hash_id","str"), &YNet::string_to_hash_id);
 
     ClassDB::bind_method(D_METHOD("socketio_send_event", "event_name","data","name_space"), &YNet::socketio_send,DEFVAL(Variant{}),DEFVAL(""));
     ClassDB::bind_method(D_METHOD("socketio_connect", "name_space"), &YNet::socketio_connect,DEFVAL(slash_namespace));
     ClassDB::bind_method(D_METHOD("socketio_disconnect", "name_space"), &YNet::socketio_disconnect,DEFVAL(slash_namespace));
-    // Error socketio_send(String &event_name, Variant data = {} , String name_space = slash_namespace);
-    // void socketio_connect(String name_space = slash_namespace);
-    // void socketio_disconnect(String name_space = slash_namespace);
 
     ClassDB::bind_method(D_METHOD("set_debugging", "debugging_level"), &YNet::set_debugging);
     ClassDB::bind_method(D_METHOD("get_debugging"), &YNet::get_debugging);
@@ -135,11 +198,11 @@ void YNet::_bind_methods() {
 
     ClassDB::bind_method(D_METHOD("add_network_spawnable","spawnable_path"), &YNet::add_network_spawnable);
     ClassDB::bind_method(D_METHOD("clear_all_spawned_network_nodes"), &YNet::clear_all_spawned_network_nodes);
-
-    ClassDB::bind_method(D_METHOD("spawn","spawnable_scene","spawned_name","parent_path","global_pos"), &YNet::spawn);
+    ClassDB::bind_method(D_METHOD("register_sync_property","networked_node","property_path", "authority", "always_sync"), &YNet::register_sync_property, DEFVAL(1), DEFVAL(false));
+    ClassDB::bind_method(D_METHOD("spawn","spawnable_scene","spawned_name","parent_path","global_pos","authority"), &YNet::spawn,DEFVAL(1));
     //spawn(Ref<PackedScene> p_spawnable_scene, Variant p_spawn_pos, String p_spawn_name, NodePath p_desired_parent)
 
-    ClassDB::bind_method(D_METHOD("rpc_spawn","network_id","packedscene_path_id","spawn_name","desired_parent_absolute_path","spawn_pos"), &YNet::rpc_spawn);
+    ClassDB::bind_method(D_METHOD("rpc_spawn","network_id","packedscene_path_id","spawn_name","desired_parent_absolute_path","spawn_pos","authority"), &YNet::rpc_spawn,DEFVAL(1));
 
     ClassDB::bind_method(D_METHOD("rpc_despawn","network_obj_id"), &YNet::rpc_despawn);
     ClassDB::bind_method(D_METHOD("despawn","network_obj_id"), &YNet::despawn);
@@ -150,9 +213,13 @@ void YNet::_bind_methods() {
     ClassDB::bind_method(D_METHOD("register_for_yrpc","node","yrpc_id"), &YNet::register_for_yrpcs);
     ClassDB::bind_method(D_METHOD("remove_from_yrpc","yrpc_id"), &YNet::remove_from_yrpc_receiving_map);
 
+    ClassDB::bind_method(D_METHOD("rpc_recv_sync_vars","synced_vars_data"), &YNet::rpc_recv_sync_vars);
     ClassDB::bind_method(D_METHOD("rpc_respond_with_spawned_nodes","spawned_nodes_data"), &YNet::rpc_respond_with_spawned_nodes);
     ClassDB::bind_method(D_METHOD("rpc_request_spawned_nodes","requester_id"), &YNet::rpc_request_spawned_nodes);
 
+    ClassDB::bind_method(D_METHOD("test_send_sync"), &YNet::test_send_sync);
+
+    //test_send_sync()
 
     {
         MethodInfo mi;
@@ -190,8 +257,35 @@ void YNet::_bind_methods() {
 
         ClassDB::bind_vararg_method(METHOD_FLAGS_DEFAULT, "receive_yrpc_call_local", &YNet::_receive_yrpc_also_local, mi);
     }
+}
 
+Ref<YNetPropertySyncer> YNet::register_sync_property(Node *p_target, const NodePath &p_property, int authority, bool p_always_sync) {
+    ERR_FAIL_NULL_V(p_target, nullptr);
 
+    ERR_FAIL_COND_V_MSG(!p_target->has_meta("net_id"), nullptr, "Registering a sync property with an object that doesn't have NetID");
+
+    int p_net_id = p_target->get_meta("net_id");
+    if (networked_id_to_authority.has(p_net_id) && networked_id_to_authority[p_net_id] != authority)
+        authority = networked_id_to_authority[p_net_id];
+    //print_line(vformat("Registering sync property %s for netid %d authority %d",p_property.get_concatenated_subnames(), p_net_id, authority));
+    Vector<StringName> property_subnames = p_property.get_as_property_path().get_subnames();
+
+    const Variant &prop_value = p_target->get_indexed(property_subnames);
+    // Array reconstruct_array;
+    // for (int i = 0; i < property_subnames.size(); ++i) {
+    //     print_line(vformat("%s", property_subnames[i]));
+    //     reconstruct_array.push_back(property_subnames[i]);
+    // }
+    // property_subnames.clear();
+    // for (int i = 0; i < reconstruct_array.size(); ++i) {
+    //     property_subnames.push_back(reconstruct_array[i]);
+    // }
+    // const Variant &prop_value_reconstructed = p_target->get_indexed(property_subnames);
+    //
+    // print_line("%s before, then reconstructed %s",prop_value,prop_value_reconstructed);
+
+    Ref<YNetPropertySyncer> tweener = memnew(YNetPropertySyncer(p_net_id, p_target, property_subnames, prop_value, authority, p_always_sync));
+    return tweener;
 }
 
 void YNet::remove_from_yrpc_receiving_map(int p_yrpc_id) {
@@ -282,7 +376,6 @@ Variant YNet::_receive_yrpc_also_local(const Variant **p_args, int p_argcount, C
     return 0;
 }
 
-
 Error YNet::_send_and_receive_yrpc(const Variant **p_args, int p_argcount, Callable::CallError &r_error) {
     if (p_argcount < 2) {
         r_error.error = Callable::CallError::CALL_ERROR_TOO_FEW_ARGUMENTS;
@@ -359,7 +452,8 @@ void YNet::setup_node() {
     //r_options->push_back(ImportOption(PropertyInfo(Variant::ARRAY, "fallbacks", PROPERTY_HINT_ARRAY_TYPE, PROPERTY_HINT_NODE_TYPE), Array()));
     add_setting("YNet/settings/network_spawnable_scenes", TypedArray<String>(), Variant::Type::ARRAY, PROPERTY_HINT_ARRAY_TYPE,
             vformat("%s/%s:",Variant::Type::STRING, PROPERTY_HINT_FILE));
-    add_setting("YNet/settings/sync_interval", 0.025f, Variant::Type::FLOAT, PROPERTY_HINT_RANGE,"0.001,0.5,0.001");
+    add_setting("YNet/settings/send_synced_properties_interval", 0.025f, Variant::Type::FLOAT, PROPERTY_HINT_RANGE,"0.001,0.5,0.001");
+    add_setting("YNet/settings/watch_synced_properties_interval", 0.025f, Variant::Type::FLOAT, PROPERTY_HINT_RANGE,"0.001,0.5,0.001");
 
     if(!already_setup_in_tree && SceneTree::get_singleton() != nullptr) {
         bool is_enabled = GLOBAL_GET("YNet/settings/enabled");
@@ -379,6 +473,8 @@ void YNet::setup_node() {
     }
 
     protocol = GLOBAL_GET("YNet/settings/protocol");
+    watch_synced_vars_interval = static_cast<uint64_t>((static_cast<double>(GLOBAL_GET("YNet/settings/watch_synced_properties_interval")) * 1000 * 1000));
+    send_synced_vars_interval = static_cast<uint64_t>((static_cast<double>(GLOBAL_GET("YNet/settings/send_synced_properties_interval")) * 1000 * 1000));
 }
 YNet* YNet::singleton = nullptr;
 
@@ -399,18 +495,18 @@ void YNet::engineio_disconnect() {
     }
 }
 
-void YNet::rpc_spawn(const int p_network_id, const uint32_t &p_spawnable_path_id, const String &p_spawn_name, const String &p_desired_parent, Variant p_spawn_pos) {
+void YNet::rpc_spawn(const int p_network_id, const uint32_t &p_spawnable_path_id, const String &p_spawn_name, const String &p_desired_parent, const Variant &p_spawn_pos, const int authority) {
     ERR_FAIL_COND_MSG(!spawnables_dictionary.has(p_spawnable_path_id), "ERROR: Received a spawn rpc with a scene id that wasn't present as a spawnable scene in YNet");
     Ref<PackedScene> ps = ResourceLoader::load(spawnables_dictionary[p_spawnable_path_id]);
     ERR_FAIL_COND_MSG(ps.is_null() || !ps.is_valid(), "ERROR: Received a spawn rpc with a invalid or null packed scene");
-    internal_spawn(p_network_id,ps,p_spawn_name,NodePath{p_desired_parent},p_spawn_pos);
+    internal_spawn(p_network_id,ps,p_spawn_name,NodePath{p_desired_parent},p_spawn_pos,authority);
 }
 
 void YNet::internal_spawn_with_queued_struct(const NetworkSpawnedObjectInfo &p_nsoi) {
     const int p_nid = p_nsoi.network_instance_id;
     const Vector3 spawn_pos = Vector3{static_cast<float>(p_nsoi.spawn_pos_x) * 0.01f, static_cast<float>(p_nsoi.spawn_pos_y) * 0.01f, static_cast<float>(p_nsoi.spawn_pos_z) * 0.01f};
     const Ref<PackedScene> ps = ResourceLoader::load(spawnables_dictionary[p_nsoi.spawnable_scene_id]);
-    internal_spawn(p_nid,ps,p_nsoi.spawned_name,p_nsoi.desired_parent,spawn_pos);
+    internal_spawn(p_nid,ps,p_nsoi.spawned_name,p_nsoi.desired_parent,spawn_pos,p_nsoi.authority);
 }
 
 Variant YNet::create_spawned_lists_variant() {
@@ -437,6 +533,7 @@ Variant YNet::convert_nsoi_to_variant(const NetworkSpawnedObjectInfo &p_nsoi) {
     variant_array.push_back(p_nsoi.spawnable_scene_id);
     variant_array.push_back(p_nsoi.spawned_name);
     variant_array.push_back(String(p_nsoi.desired_parent));
+    variant_array.push_back(p_nsoi.authority);
     bool has_spawned = false;
     bool has_z = false;
     if (p_nsoi.SpawnedNodeId.is_valid()) {
@@ -459,32 +556,35 @@ Variant YNet::convert_nsoi_to_variant(const NetworkSpawnedObjectInfo &p_nsoi) {
             }
         }
     }
+
     if (!has_spawned) {
         variant_array.push_back(p_nsoi.spawn_pos_x);
         variant_array.push_back(p_nsoi.spawn_pos_y);
-    } else {
-        if (!has_z) {
-            variant_array.push_back(p_nsoi.spawn_pos_z);
-        }
+    }
+    if (!has_z) {
+        variant_array.push_back(p_nsoi.spawn_pos_z);
     }
     return variant_array;
 }
 
 void YNet::unpack_spawninfo_from_variant(const Array& received_spawn_info) {
-    ERR_FAIL_COND_MSG(received_spawn_info.size() < 7, "ERROR: Attempted to unpack a spawninfo variable with wrong number of arguments");
+    ERR_FAIL_COND_MSG(received_spawn_info.size() < 8, "ERROR: Attempted to unpack a spawninfo variable with wrong number of arguments");
     int _n_id = received_spawn_info[0];
     if (networked_spawned_objects.has(_n_id)) {
         return;
     }
+    networked_id_to_authority[_n_id] = received_spawn_info[4];
     queued_networked_spawned_objects[_n_id] = NetworkSpawnedObjectInfo{_n_id, received_spawn_info[1],
         received_spawn_info[2], ObjectID{}, NodePath{received_spawn_info[3]}, received_spawn_info[4]
-    ,received_spawn_info[5], received_spawn_info[6]};
+    ,received_spawn_info[5], received_spawn_info[6], received_spawn_info[7]};
 }
 
-Node *YNet::internal_spawn(int p_network_id, const Ref<PackedScene> &p_spawnable_scene, const String &p_spawn_name, const NodePath &p_desired_parent, Variant p_spawn_pos) {
+Node *YNet::internal_spawn(int p_network_id, const Ref<PackedScene> &p_spawnable_scene, const String &p_spawn_name, const NodePath &p_desired_parent, const Variant &p_spawn_pos, const int authority) {
     ERR_FAIL_COND_V_MSG(p_spawnable_scene.is_null() || !p_spawnable_scene.is_valid(), nullptr, "ERROR: Spawnable scene is not valid");
     uint32_t desired_spawn_path_id = string_to_hash_id(p_spawnable_scene->get_path());
     ERR_FAIL_COND_V_MSG(!spawnables_dictionary.has(desired_spawn_path_id), nullptr, "ERROR: Provided scene wasn't added as a spawnable scene to YNet");
+
+    networked_id_to_authority[p_network_id] = authority;
 
     int _spawn_x = -1;
     int _spawn_y = -1;
@@ -507,7 +607,7 @@ Node *YNet::internal_spawn(int p_network_id, const Ref<PackedScene> &p_spawnable
     if (p_desired_parent_node == nullptr) {
         // Parent node isn't here yet, try again later.
         if (!queued_networked_spawned_objects.has(p_network_id))
-            queued_networked_spawned_objects[p_network_id] = NetworkSpawnedObjectInfo{p_network_id, desired_spawn_path_id, p_spawn_name, ObjectID{}, p_desired_parent, _spawn_x, _spawn_y, _spawn_z};
+            queued_networked_spawned_objects[p_network_id] = NetworkSpawnedObjectInfo{p_network_id, desired_spawn_path_id, p_spawn_name, ObjectID{}, p_desired_parent, authority, _spawn_x, _spawn_y, _spawn_z};
         return nullptr;
     }
 
@@ -519,6 +619,7 @@ Node *YNet::internal_spawn(int p_network_id, const Ref<PackedScene> &p_spawnable
         p_arguments.push_back(p_spawn_name);
         p_arguments.push_back(String(p_desired_parent));
         p_arguments.push_back(p_spawn_pos);
+        p_arguments.push_back(authority);
         int argcount = p_arguments.size();
         const Variant **argptrs = (const Variant **)alloca(sizeof(Variant *) * argcount);
         for (int i = 0; i < argcount; i++) {
@@ -533,26 +634,41 @@ Node *YNet::internal_spawn(int p_network_id, const Ref<PackedScene> &p_spawnable
 
     spawned_instance->set_name(p_spawn_name);
     spawned_instance->set_meta("net_id",p_network_id);
+    spawned_instance->set_meta("net_authority",authority);
+    // print_line(vformat("[%s] Internal spawn actually spawning net id %d with authority %d",get_multiplayer()->is_server() ? "SERVER" : "CLIENT", p_network_id,authority));
+    //spawned_instance->connect("tree_entered",callable_mp(this,&YNet::set_authority_after_entered).bind(spawned_instance).bind(authority), CONNECT_ONE_SHOT);
+    //spawned_instance->connect("ready",callable_mp(spawned_instance,&Node::set_multiplayer_authority).bind(authority).bind(true), CONNECT_ONE_SHOT);
+    p_desired_parent_node->connect("child_entered_tree",callable_mp(this,&YNet::set_authority_after_entered).bind(authority), CONNECT_ONE_SHOT);
     p_desired_parent_node->add_child(spawned_instance,true);
+    spawned_instance->set_multiplayer_authority(authority);
     auto spawned_node2D = Object::cast_to<Node2D>(spawned_instance);
     if (spawned_node2D != nullptr) {
         spawned_node2D->set_global_position(p_spawn_pos);
-        spawned_node2D->connect("exit_tree",callable_mp(this,&YNet::spawned_network_node_exited_tree),CONNECT_ONE_SHOT);
+        spawned_node2D->connect("tree_exited",callable_mp(this,&YNet::spawned_network_node_exited_tree).bind(p_network_id),CONNECT_ONE_SHOT);
     } else {
         auto spawned_node3D = Object::cast_to<Node3D>(spawned_instance);
         if (spawned_node3D != nullptr) {
             spawned_node3D->set_global_position(p_spawn_pos);
+            spawned_node3D->connect("tree_exited",callable_mp(this,&YNet::spawned_network_node_exited_tree).bind(p_network_id),CONNECT_ONE_SHOT);
         }
     }
-    networked_spawned_objects[p_network_id] = NetworkSpawnedObjectInfo{p_network_id, desired_spawn_path_id, p_spawn_name, spawned_instance->get_instance_id(), p_desired_parent, _spawn_x, _spawn_y, _spawn_z};
+    yrpc_to_node_hash_map[p_network_id] = spawned_instance->get_instance_id();
+    networked_spawned_objects[p_network_id] = NetworkSpawnedObjectInfo{p_network_id, desired_spawn_path_id, p_spawn_name, spawned_instance->get_instance_id(), p_desired_parent, authority, _spawn_x, _spawn_y, _spawn_z};
     if (queued_networked_spawned_objects.has(p_network_id))
         queued_networked_spawned_objects.erase(p_network_id);
     return spawned_instance;
 }
 
-Node *YNet::spawn(const Ref<PackedScene> &p_spawnable_scene, const String &p_spawn_name, const NodePath &p_desired_parent, Variant p_spawn_pos) {
+void YNet::set_authority_after_entered(Node* node_entered_tree, int authority) {
+    if (node_entered_tree != nullptr) {
+        node_entered_tree->set_multiplayer_authority(authority,true);
+        // print_line("Set authority after entered ",node_entered_tree->get_multiplayer_authority());
+    }
+}
+
+Node *YNet::spawn(const Ref<PackedScene> &p_spawnable_scene, const String &p_spawn_name, const NodePath &p_desired_parent, const Variant &p_spawn_pos, int authority) {
     ERR_FAIL_COND_V_MSG(!get_multiplayer()->is_server(), nullptr, "ERROR: Attempted to spawn a networked node from a client");
-    return internal_spawn(get_new_network_id(),p_spawnable_scene, p_spawn_name, p_desired_parent,p_spawn_pos);
+    return internal_spawn(get_new_network_id(),p_spawnable_scene, p_spawn_name, p_desired_parent, p_spawn_pos, authority);
 }
 
 void YNet::rpc_request_spawned_nodes(int id_requesting) {
@@ -574,6 +690,9 @@ void YNet::rpc_respond_with_spawned_nodes(const Array& spawned_nodes_info) {
 }
 
 void YNet::rpc_despawn(int p_network_id) {
+    if (networked_property_syncers.has(p_network_id)) {
+        networked_property_syncers.erase(p_network_id);
+    }
     if (queued_networked_spawned_objects.has(p_network_id)) {
         queued_networked_spawned_objects.erase(p_network_id);
     }
@@ -614,6 +733,161 @@ void YNet::despawn_node(const Node* node_to_despawn) {
     ERR_FAIL_COND_MSG(!node_to_despawn->has_meta("net_id"), "ERROR: Attempted to despawn a node without a networked id");
     int net_id_despawning = node_to_despawn->get_meta("net_id",0);
     despawn(net_id_despawning);
+}
+
+
+void YNet::test_send_sync() {
+    HashMap<uint8_t,Variant> test_hash_map;
+    test_hash_map[2] = 4;
+    test_hash_map[4] = 10;
+    queued_to_send_property_syncers.insert(1, test_hash_map);
+    HashMap<uint8_t,Variant> test_hash_map2;
+    test_hash_map2[2] = 4;
+    test_hash_map2[1] = "Test";
+    queued_to_send_property_syncers.insert(4, test_hash_map2);
+    print_line("Called test send sync");
+    send_sync_vars(0);
+}
+
+void YNet::send_sync_vars(uint64_t p_cur_usec) {
+	// Create base packet, lots of hardcode because it must be tight.
+	int ofs = 0;
+
+#define MAKE_ROOM(m_amount)             \
+	if (packet_cache.size() < m_amount) \
+		packet_cache.resize(m_amount);
+
+	MAKE_ROOM(3);
+	// The meta is composed along the way, so just set 0 for now.
+	packet_cache.write[0] = 0;
+    packet_cache.write[1] = 0;
+    packet_cache.write[2] = 72;
+	ofs += 3;
+
+    uint8_t node_id_compression = UINT8_MAX;
+    const auto amount_to_send = queued_to_send_property_syncers.size();
+
+	if (amount_to_send >= 0 && amount_to_send <= 255) {
+		// We can encode the id in 1 byte
+		node_id_compression = NETWORK_NODE_ID_COMPRESSION_8;
+		MAKE_ROOM(ofs + 1);
+		packet_cache.write[ofs] = static_cast<uint8_t>(amount_to_send);
+		ofs += 1;
+	} else if (amount_to_send >= 0 && amount_to_send <= 65535) {
+		// We can encode the id in 2 bytes
+		node_id_compression = NETWORK_NODE_ID_COMPRESSION_16;
+		MAKE_ROOM(ofs + 2);
+		encode_uint16(static_cast<uint16_t>(amount_to_send), &(packet_cache.write[ofs]));
+		ofs += 2;
+	} else {
+		// Too big, let's use 4 bytes.
+		node_id_compression = NETWORK_NODE_ID_COMPRESSION_32;
+		MAKE_ROOM(ofs + 4);
+		encode_uint32(amount_to_send, &(packet_cache.write[ofs]));
+		ofs += 4;
+	}
+
+
+    //This is Godot 4 C++ Code
+    //I want to start a byte array for sending these variables for syncing across the network.
+    for (const auto& propertysyncers: queued_to_send_property_syncers) {
+        MAKE_ROOM(ofs + 4);
+        encode_uint32(propertysyncers.key, &(packet_cache.write[ofs]));
+        ofs += 4;
+
+        MAKE_ROOM(ofs + 1);
+        packet_cache.write[ofs] = static_cast<uint8_t>(propertysyncers.value.size());
+        ofs += 1;
+
+        // This key int is used to find the object that the variants belong to.
+        // The value in this keyvalue is a hashmap<int,variant>, the int there identifies the index of the property and will never be bigger than a byte. the variant can be any type of variant.
+        for (const auto& _property_info: propertysyncers.value) {
+
+            MAKE_ROOM(ofs + 1);
+            packet_cache.write[ofs] = static_cast<uint8_t>(_property_info.key);
+            ofs += 1;
+
+            int len;
+            Error err = MultiplayerAPI::encode_and_compress_variant(_property_info.value, nullptr, len, false);
+            ERR_FAIL_COND_MSG(err != OK, "Unable to encode sync value. THIS IS LIKELY A BUG IN THE ENGINE!");
+            MAKE_ROOM(ofs + len);
+            if (len) {
+                MultiplayerAPI::encode_and_compress_variant(_property_info.value, &packet_cache.write[ofs], len, false);
+                ofs += len;
+            }
+            // Here I need to store these values as byte to send it to sync as small as possible.
+        }
+    }
+
+	ERR_FAIL_COND(node_id_compression > 3);
+
+	// We can now set the meta
+    packet_cache.write[0] = scene_multiplayer->NETWORK_COMMAND_RAW;
+	packet_cache.write[1] = node_id_compression;
+
+    scene_multiplayer->send_command(0,packet_cache.ptr(), ofs);
+    queued_to_send_property_syncers.clear();
+}
+
+void YNet::on_received_peer_packet(int packet_from, const Vector<uint8_t> &packet_received) {
+    int _packet_size = static_cast<int>(packet_received.size());
+    //print_line(vformat("On Received peer packet from [%d] size [%d] packet byte 0 [%d]",packet_from,_packet_size,packet_received[0]));
+    if (_packet_size > 4 && packet_received[1] == 72) {
+        //print_line(vformat("Received packet with size %d, with %d as the first byte and %d as the second byte", _packet_size, packet_received[2], packet_received[3]));
+        received_sync_packet(packet_from, packet_received);
+    }
+}
+
+void YNet::received_sync_packet(int received_from, const Vector<uint8_t> &p_buffer) {
+    const int received_packet_size = static_cast<int>(p_buffer.size());
+    uint8_t amount_type = p_buffer[0];
+    int ofs = 2; // The spot where amount received starts.
+    uint32_t amount_received = 0;
+    if (amount_type == NETWORK_NODE_ID_COMPRESSION_8) {
+        amount_received = p_buffer[ofs];
+        ofs += 1;
+    } else if (amount_type == NETWORK_NODE_ID_COMPRESSION_16) {
+        amount_received = decode_uint16(&p_buffer[ofs]);
+        ofs += 2;
+    } else if (amount_type == NETWORK_NODE_ID_COMPRESSION_32) {
+        amount_received = decode_uint32(&p_buffer[ofs]);
+        ofs += 4;
+    }
+    for (int i = 0; i < static_cast<int>(amount_received); ++i) {
+        int net_id = static_cast<int>(decode_uint32(&p_buffer[ofs]));
+        //print_line(vformat("[%s] Received sync packet netid %d has network id to authority? %s %d received from %d",get_multiplayer()->is_server() ? "SERVER" : "CLIENT", net_id, networked_id_to_authority.has(net_id), networked_id_to_authority.has(net_id) ? networked_id_to_authority[net_id] : 0, received_from));
+        bool can_receive_net_id = networked_id_to_authority.has(net_id) && networked_id_to_authority[net_id] == received_from;
+        ofs += 4;
+        uint8_t amount_of_properties_received = p_buffer[ofs];
+        ofs += 1;
+        for (int y = 0; y < amount_of_properties_received; ++y) {
+            uint8_t property_index_received = p_buffer[ofs];
+            ofs += 1;
+            int vlen;
+            Variant v;
+            Error err = MultiplayerAPI::decode_and_decompress_variant(v, &p_buffer[ofs], received_packet_size - ofs, &vlen, false);
+            ERR_FAIL_COND_MSG(err != OK, "Invalid packet received. Unable to decode state variable.");
+            ofs += vlen;
+
+            //print_line(vformat("Received for netid %d property %d value %s. From %d Can receive? %s",net_id,property_index_received,v,received_from, can_receive_net_id));
+            if (can_receive_net_id) {
+                if (networked_property_syncers.has(net_id) && property_index_received < networked_property_syncers[net_id].size()) {
+                    //print_line("Setting current value for property index");
+                    networked_property_syncers[net_id][property_index_received]->set_current_val(v);
+                } else {
+                    if (!queued_received_property_syncers.has(net_id)) {
+                        HashMap<uint8_t, Variant> _rec_property_values;
+                        queued_received_property_syncers[net_id] = _rec_property_values;
+                    }
+                    queued_received_property_syncers[net_id][property_index_received] = v;
+                }
+            }
+        }
+    }
+}
+
+void YNet::rpc_recv_sync_vars(Variant p_synced_vars_data) {
+
 }
 
 YNet* YNet::engineio_connect(String _url) {
@@ -712,6 +986,8 @@ void YNet::_notification(int p_what) {
             }
         }break;
         case NOTIFICATION_READY: {
+            scene_multiplayer = get_multiplayer();
+            scene_multiplayer->connect("peer_packet", callable_mp(this, &YNet::on_received_peer_packet));
             get_multiplayer()->connect("connected_to_server",callable_mp(this,&YNet::on_connected_to_server));
             this->rpc_config(receive_yrpc_stringname,create_rpc_dictionary_config(MultiplayerAPI::RPC_MODE_ANY_PEER, MultiplayerPeer::TRANSFER_MODE_UNRELIABLE_ORDERED, false, 0));
             this->rpc_config(receive_yrpc_also_local_stringname,create_rpc_dictionary_config(MultiplayerAPI::RPC_MODE_ANY_PEER, MultiplayerPeer::TRANSFER_MODE_UNRELIABLE_ORDERED, true, 0));
@@ -731,6 +1007,12 @@ void YNet::_notification(int p_what) {
 }
 
 void YNet::spawned_network_node_exited_tree(int p_nid) {
+    if (networked_property_syncers.has(p_nid)) {
+        networked_property_syncers.erase(p_nid);
+    }
+    if (yrpc_to_node_hash_map.has(p_nid)) {
+        yrpc_to_node_hash_map.erase(p_nid);
+    }
     if (networked_spawned_objects.has(p_nid)) {
         networked_spawned_objects.erase(p_nid);
         if (get_multiplayer()->is_server()) {
@@ -769,6 +1051,7 @@ void YNet::on_connected_to_server() {
     }
 }
 
+
 Dictionary YNet::create_rpc_dictionary_config(MultiplayerAPI::RPCMode p_rpc_mode, MultiplayerPeer::TransferMode p_transfer_mode, bool p_call_local, int p_channel) {
     Dictionary _dict_config;
     _dict_config["rpc_mode"] = p_rpc_mode;
@@ -794,12 +1077,12 @@ bool YNet::process_packets() {
             for (const auto& to_spawn: infos_to_spawn) {
                 internal_spawn_with_queued_struct(to_spawn);
             }
-            const int amount_spawned = static_cast<int>(infos_to_spawn.size());
-            if (amount_spawned > 0) {
-                const int amount_queued_after = static_cast<int>(queued_networked_spawned_objects.size());
-                const int amount_currently_spawned = static_cast<int>(networked_spawned_objects.size());
-                //print_line(vformat("[%s] Had %d queued before, spawned %d, had %d queued after. Total spawned now: %d",get_multiplayer()->is_server() ? "SERVER" : "CLIENT",amount_queued,amount_spawned,amount_queued_after,amount_currently_spawned));
-            }
+            // const int amount_spawned = static_cast<int>(infos_to_spawn.size());
+            // if (amount_spawned > 0) {
+            //     const int amount_queued_after = static_cast<int>(queued_networked_spawned_objects.size());
+            //     const int amount_currently_spawned = static_cast<int>(networked_spawned_objects.size());
+            //     //print_line(vformat("[%s] Had %d queued before, spawned %d, had %d queued after. Total spawned now: %d",get_multiplayer()->is_server() ? "SERVER" : "CLIENT",amount_queued,amount_spawned,amount_queued_after,amount_currently_spawned));
+            // }
         }
     }
 
@@ -1113,6 +1396,40 @@ void YNet::do_process() {
         }
         set_process(false);
     }
+
+    if (!networked_property_syncers.is_empty()) {
+        uint64_t usec = OS::get_singleton()->get_ticks_usec();
+        if (last_watched_synced_vars > usec) last_watched_synced_vars = usec;
+        if (last_sent_synced_vars > usec) last_sent_synced_vars = usec;
+        //print_line(vformat("last watched sync vars %d + interval %d < usec %d     [ %d < %d ]    %s",last_watched_synced_vars,watch_synced_vars_interval,usec,last_watched_synced_vars + watch_synced_vars_interval,usec,last_watched_synced_vars + watch_synced_vars_interval < usec));
+        if (last_watched_synced_vars + watch_synced_vars_interval < usec) {
+            last_watched_synced_vars = usec;
+            int my_unique_id = scene_multiplayer->get_unique_id();
+            for (const auto& netpropsync: networked_property_syncers) {
+                //print_line(vformat("my id %d, networked id to authority has %d? %s is my id? %s", my_unique_id, netpropsync.key, networked_id_to_authority.has(netpropsync.key), networked_id_to_authority.has(netpropsync.key) && networked_id_to_authority[netpropsync.key] == my_unique_id));
+                if (networked_id_to_authority.has(netpropsync.key) && networked_id_to_authority[netpropsync.key] == my_unique_id) {
+                    auto syncproperties = netpropsync.value;
+                    for (int i = 0; i < syncproperties.size(); ++i) {
+                        Variant value_before = syncproperties[i]->current_val;
+                        if(syncproperties[i]->check_for_changed_value() || syncproperties[i]->sync_always) {
+                            // If the outer_key doesn't exist in the outer HashMap, it would default construct an inner HashMap
+                            HashMap<uint8_t, Variant>& inner_map = queued_to_send_property_syncers[netpropsync.key];
+
+                            // Add (or modify) the value in the inner HashMap
+                            inner_map[syncproperties[i]->property_syncer_index] = syncproperties[i]->current_val;
+                        }
+                       // print_line(vformat("my id %d. netid %d property index %d value now %s value after %s, is different? %s",my_unique_id, syncproperties[i]->net_id,syncproperties[i]->property_syncer_index, value_before, syncproperties[i]->current_val, value_before != syncproperties[i]->current_val));
+                    }
+                }
+            }
+           // print_line("Watching synced properties");
+        }
+        if (last_sent_synced_vars + send_synced_vars_interval < usec && !queued_to_send_property_syncers.is_empty()) {
+            last_sent_synced_vars = usec;
+            send_sync_vars(usec);
+            //print_line("Sent sync vars maybe");
+        }
+    }
 }
 
 int YNet::get_max_queued_packets() {
@@ -1353,6 +1670,23 @@ void YNet::register_for_yrpcs(Node *p_registering_node, int registering_id) {
     p_registering_node->connect("tree_exiting", callable_mp(this,&YNet::remove_from_yrpc_receiving_map).bind(registering_id));
 }
 
+uint32_t YNet::string_to_hash_id(const String &p_string) {
+        /* simple djb2 hashing */
+
+        const char32_t *chr = p_string.get_data();
+        uint32_t hashv = 5381;
+        uint32_t c = *chr++;
+
+        while (c) {
+            hashv = (((hashv) << 5) + hashv) + c; /* hash * 33 + c */
+            c = *chr++;
+        }
+
+        hashv = hash_fmix32(hashv);
+        hashv = hashv & 0x7FFFFFFF; // Make it compatible with unsigned, since negative ID is used for exclusion
+        return hashv;
+}
+
 YNet * YNet::get_singleton() {
     return singleton;
 }
@@ -1364,8 +1698,13 @@ YNet::YNet() {
     rpc_despawn_stringname = "rpc_despawn";
     rpc_request_spawned_nodes_stringname = "rpc_request_spawned_nodes";
     rpc_respond_with_spawned_nodes_stringname = "rpc_respond_with_spawned_nodes";
+    rpc_rec_synced_vars_stringname = "rpc_recv_sync_vars";
     singleton = this;
     max_queued_packets = 2048;
+
+    last_sent_synced_vars = 0ul;
+    last_watched_synced_vars = 0ul;
+
     call_deferred("setup_node");
 }
 
