@@ -129,6 +129,7 @@ void YNet.despawn(network_obj_id: int)
 void YNet.despawn_node(node: Node)
 ```
 
+## YNet RPCs
 ### RPCs in Networked Nodes
 
 RPCs can be sent from Networked Nodes or children of Networked Nodes. If sending from a child node you have to make sure that the relative nodepath to the parent networked node is the same across the network.
@@ -152,6 +153,7 @@ func receive_chat_message(message:String, number:int):
 	print(number,message)
 ```
 
+## YNet Properties Synchronization
 ### Automatically Synchronizing variables in Networked Nodes:
 
 To register variables for automatically serialization use this method: (Only variables in the Root networked object can be synchronized with this method at the moment)
