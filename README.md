@@ -1,6 +1,10 @@
-## YNet
+# YNet _for Godot 4.2+_
 
-A Godot 4.3+ Custom Module for making online multiplayer games using a node.js socket.io server to connect players together in rooms and relay messages between them.
+A Godot 4.2+ Custom Module for making online multiplayer games.
+
+**Main Features:**
+ - A custom multiplayer peer that uses a node.js socket.io server to connect players together in rooms and relay messages between them, including a way of retrieving room lists and room info from the server.
+ - Custom RPC/Spawner/Synchronizer methods to replace godot's RPCs, MultiplayerSpawner and MultiplayerSynchronizer. These custom implementations rely on synchronized numeric IDs instead of node paths. If a player doesn't currently have the desired parent node path for a networked node it will queue the spawn/synchronization calls until it does.
 
 I'm mostly doing this for my own personal use so things are messier than they probably should be, and I haven't been documenting things. I'll try to do some more documentation and add a demo if anyone wants to try it.
 
@@ -89,6 +93,84 @@ func _on_join_pressed() -> void:
 
   ## The connection should now be established.
 ```
+
+## YNet Multiplayer Spawner
+
+### Defining spawnable scenes:
+To use the YNet Multiplayer spawner you need to define the scenes that can be spawned over the network. There's two ways of doing that.
+
+#### Project Settings
+One way is to modify the Network Spawnable Scenes array in project settings, adding the node paths there.
+![image](https://github.com/DanielSnd/YarnNet/assets/9072324/844fa9d7-5a81-4f37-9b6a-687ab832b373)
+
+#### Through code
+The other way is through code with `YNet.add_network_spawnable(file_path)`. You would want to do that before any spawns occur, ideally before you start a connection. It only has to be done once. I usually do it in an Autoload's `_ready()` function. 
+
+Here's an example of adding all the files in a folder as network spawnable:
+```gdscript
+	for file in DirAccess.get_files_at("res://resources/monsters/"):
+		var file_full_path:= "res://resources/monsters/{0}".format({0:file})
+		YNet.add_network_spawnable(file_full_path)
+```
+
+### Spawning/Despawning a Networked Nodes
+
+The following method can be used in the server to spawn a networked scene: (Only the server can spawn networked scenes)
+```gdscript
+Node YNet.spawn(spawnable_scene: PackedScene, spawned_name: String, parent_path: NodePath, global_pos: Variant, authority: int = 1)
+```
+It will automatically instantiate the desired node and place it in the hierarchy under the desired parent_path if it is available. If the desired parent path isn't available it will return null but will queue the spawn to happen once the desired parent path becomes available.
+
+Networked Nodes are spawned with a numeric id that can be accessed with get_meta("net_id"). This ID is synchronized over the network and can be used to find the node for RPCs and Synchronization.
+
+To despawn a networked scene you can either `queue_free()` them as usual (It handles the despawning logic under the hood) or use the following methods: (Only the host can despawn networked nodes)
+```gdscript
+void YNet.despawn(network_obj_id: int)
+void YNet.despawn_node(node: Node)
+```
+
+### RPCs in Networked Nodes
+
+RPCs can be sent from Networked Nodes or children of Networked Nodes. If sending from a child node you have to make sure that the relative nodepath to the parent networked node is the same across the network.
+
+To call an RPC use this method:
+```gdscript
+Error YNet.send_yrpc(method: Callable, ...) 
+```
+Or if you would like to also run the RPC locally besides calling it remotely:
+```gdscript
+Error send_and_receive_yrpc(method: Callable, ...) vararg
+```
+
+Here's an example:
+```gdscript
+func example_send_rpc():
+	YNet.send_yrpc(receive_chat_message, "This is a message", 5)
+
+## This will be called remotely with the values "This is a message" and 5:
+func receive_chat_message(message:String, number:int):
+	print(number,message)
+```
+
+### Automatically Synchronizing variables in Networked Nodes:
+
+To register variables for automatically serialization use this method: (Only variables in the Root networked object can be synchronized with this method at the moment)
+```gdscript
+YNetPropertySyncer YNet.register_sync_property(networked_node: Node, property_path: NodePath, authority: int = 1, always_sync: bool = false)
+```
+
+Example for a Sprite2D node:
+
+```gdscript
+func _ready():
+	YNet.register_sync_property(self, "modulate")
+```
+
+All SyncProperties get automatically synced on Spawn on clients. They also get automatically Synchronized when their values change. If you want them to always synchronize pass true on the fourth variable.
+
+To control the interval for the automatic synchronizing you can modify these values in the project settings:
+![image](https://github.com/DanielSnd/YarnNet/assets/9072324/b138249a-abbb-4693-bc93-1ce605aa4968)
+
 
 # Demo Project
 
