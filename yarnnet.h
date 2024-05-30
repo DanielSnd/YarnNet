@@ -226,6 +226,13 @@ public:
         spawnables_dictionary[string_to_hash_id(new_spawnable)] = new_spawnable;
     }
 
+
+    Ref<PackedScene> find_network_spawnable(uint32_t new_spawnable_id);
+
+    uint32_t get_network_spawnable_id(const String& new_spawnable) {
+        return string_to_hash_id(new_spawnable);
+    }
+
     String protocol ="change_me";
     String get_protocol() const {return protocol;}
     void set_protocol(String val) {protocol = val;}
@@ -246,6 +253,8 @@ public:
     int hashed_sid{};
     int get_hashed_sid() const {return hashed_sid;}
     void set_hashed_sid(int val) {}
+
+    Node* find_node_with_net_id(int p_net_id);
 
     String room_id = "";
     String get_room_id() const {return room_id;}
@@ -287,6 +296,11 @@ public:
     bool get_offline_mode() const {return offline_mode;}
     void set_offline_mode(bool val) {offline_mode = val;}
 
+    
+    bool pause_receive_spawns = false;
+    bool get_pause_receive_spawns() const {return pause_receive_spawns;}
+    void set_pause_receive_spawns(bool val) {pause_receive_spawns = val;}
+    
     int last_used_id = 1;
     int get_last_used_id() const {return last_used_id;}
     void set_last_used_id(int val) {last_used_id = val;}

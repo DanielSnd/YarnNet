@@ -143,9 +143,9 @@ void YNet::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_is_host"), &YNet::get_is_host);
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "is_host"), "set_is_host", "get_is_host");
 
-    ClassDB::bind_method(D_METHOD("set_offline_mode", "status"), &YNet::set_offline_mode);
-    ClassDB::bind_method(D_METHOD("get_offline_mode"), &YNet::get_offline_mode);
-    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "offline_mode"), "set_offline_mode", "get_offline_mode");
+    ClassDB::bind_method(D_METHOD("set_pause_receive_spawns", "status"), &YNet::set_pause_receive_spawns);
+    ClassDB::bind_method(D_METHOD("get_pause_receive_spawns"), &YNet::set_pause_receive_spawns);
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "pause_receive_spawns"), "set_pause_receive_spawns", "get_pause_receive_spawns");
 
     ClassDB::bind_method(D_METHOD("set_hashed_socket_id", "status"), &YNet::set_hashed_sid);
     ClassDB::bind_method(D_METHOD("get_hashed_socket_id"), &YNet::get_hashed_sid);
@@ -198,6 +198,11 @@ void YNet::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_room_list"), &YNet::get_room_list);
 
     ClassDB::bind_method(D_METHOD("add_network_spawnable","spawnable_path"), &YNet::add_network_spawnable);
+    ClassDB::bind_method(D_METHOD("get_network_spawnable_id","spawnable_path"), &YNet::get_network_spawnable_id);
+    ClassDB::bind_method(D_METHOD("find_network_spawnable","spawnable_id"), &YNet::find_network_spawnable);
+
+    ClassDB::bind_method(D_METHOD("find_node_with_net_id","net_id"), &YNet::find_node_with_net_id);
+
     ClassDB::bind_method(D_METHOD("clear_all_spawned_network_nodes"), &YNet::clear_all_spawned_network_nodes);
     ClassDB::bind_method(D_METHOD("register_sync_property","networked_node","property_path", "authority", "always_sync"), &YNet::register_sync_property, DEFVAL(1), DEFVAL(false));
     ClassDB::bind_method(D_METHOD("spawn","spawnable_scene","spawned_name","parent_path","global_pos","authority"), &YNet::spawn,DEFVAL(1));
@@ -670,7 +675,7 @@ Node *YNet::internal_spawn(int p_network_id, const Ref<PackedScene> &p_spawnable
 
     Node* p_desired_parent_node = this->get_node_or_null(p_desired_parent);
 
-    if (p_desired_parent_node == nullptr) {
+    if (p_desired_parent_node == nullptr || pause_receive_spawns) {
         // Parent node isn't here yet, try again later.
         if (!queued_networked_spawned_objects.has(p_network_id))
             queued_networked_spawned_objects[p_network_id] = NetworkSpawnedObjectInfo{p_network_id, desired_spawn_path_id, p_spawn_name, ObjectID{}, p_desired_parent, authority, _spawn_x, _spawn_y, _spawn_z};
@@ -1145,8 +1150,7 @@ bool YNet::process_packets() {
     count_to_check_should_spawn += 1;
     if (count_to_check_should_spawn > 30) {
         count_to_check_should_spawn = 0;
-        if (!queued_networked_spawned_objects.is_empty()) {
-            const int amount_queued = static_cast<int>(queued_networked_spawned_objects.size());
+        if (!queued_networked_spawned_objects.is_empty() && !pause_receive_spawns) {
             Vector<NetworkSpawnedObjectInfo> infos_to_spawn;
             for (const auto& queued_spawnables: queued_networked_spawned_objects) {
                 auto _get_node_or_null = get_node_or_null(queued_spawnables.value.desired_parent);
@@ -1293,6 +1297,26 @@ Error YNet::socketio_send(String event_name, Variant _data, String name_space) {
     if (_data.get_type() != Variant::Type::NIL)
         payload.append(_data);
     return socketio_send_packet_text(EVENT,payload,name_space);
+}
+
+Ref<PackedScene> YNet::find_network_spawnable(uint32_t new_spawnable_id) {
+    if (spawnables_dictionary.has(new_spawnable_id)) {
+        return ResourceLoader::load(spawnables_dictionary[new_spawnable_id]);
+    }
+    return nullptr;
+}
+
+Node * YNet::find_node_with_net_id(int p_net_id) {
+    if (yrpc_to_node_hash_map.has(p_net_id)) {
+        const ObjectID desiredId = yrpc_to_node_hash_map[p_net_id];
+        if (desiredId.is_valid()) {
+            Node *actual_node = Object::cast_to<Node>(ObjectDB::get_instance(desiredId));
+            if (actual_node != nullptr) {
+                return actual_node;
+            }
+        }
+    }
+    return nullptr;
 }
 
 void YNet::socketio_connect(String name_space) {
