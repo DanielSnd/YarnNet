@@ -144,7 +144,7 @@ void YNet::_bind_methods() {
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "is_host"), "set_is_host", "get_is_host");
 
     ClassDB::bind_method(D_METHOD("set_pause_receive_spawns", "status"), &YNet::set_pause_receive_spawns);
-    ClassDB::bind_method(D_METHOD("get_pause_receive_spawns"), &YNet::set_pause_receive_spawns);
+    ClassDB::bind_method(D_METHOD("get_pause_receive_spawns"), &YNet::get_pause_receive_spawns);
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "pause_receive_spawns"), "set_pause_receive_spawns", "get_pause_receive_spawns");
 
     ClassDB::bind_method(D_METHOD("set_hashed_socket_id", "status"), &YNet::set_hashed_sid);
@@ -1309,7 +1309,7 @@ Ref<PackedScene> YNet::find_network_spawnable(uint32_t new_spawnable_id) {
 Node * YNet::find_node_with_net_id(int p_net_id) {
     if (yrpc_to_node_hash_map.has(p_net_id)) {
         const ObjectID desiredId = yrpc_to_node_hash_map[p_net_id];
-        if (desiredId.is_valid()) {
+        if (!desiredId.is_null() && desiredId.is_valid()) {
             Node *actual_node = Object::cast_to<Node>(ObjectDB::get_instance(desiredId));
             if (actual_node != nullptr) {
                 return actual_node;
@@ -1796,6 +1796,7 @@ YNet * YNet::get_singleton() {
 }
 
 YNet::YNet() {
+    pause_receive_spawns = false;
     receive_yrpc_stringname = "receive_yrpc";
     receive_yrpc_also_local_stringname = "receive_yrpc_call_local";
     rpc_spawn_stringname = "rpc_spawn";
