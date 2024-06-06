@@ -233,6 +233,10 @@ public:
         return string_to_hash_id(new_spawnable);
     }
 
+    bool is_network_spawnable(const String& new_spawnable) {
+        return spawnables_dictionary.has(get_network_spawnable_id(new_spawnable));
+    }
+
     String protocol ="change_me";
     String get_protocol() const {return protocol;}
     void set_protocol(String val) {protocol = val;}
@@ -312,7 +316,7 @@ public:
     Node *internal_spawn(int network_id, const Ref<PackedScene> &p_spawnable_scene, const String &p_spawn_name,
                          const NodePath &p_desired_parent, const Variant &p_spawn_pos, int authority);
 
-    void set_authority_after_entered(Node *node_entered_tree, int authority);
+    void set_authority_after_entered(Node *node_entered_tree, const Variant &p_spawn_pos, int authority);
 
     Node *spawn_with_path(const String &p_spawnable_scene_path, const String &p_spawn_name,
                           const NodePath &p_desired_parent, const Variant &p_spawn_pos, int authority);

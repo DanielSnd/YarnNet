@@ -200,6 +200,8 @@ void YNet::_bind_methods() {
     ClassDB::bind_method(D_METHOD("add_network_spawnable","spawnable_path"), &YNet::add_network_spawnable);
     ClassDB::bind_method(D_METHOD("get_network_spawnable_id","spawnable_path"), &YNet::get_network_spawnable_id);
     ClassDB::bind_method(D_METHOD("find_network_spawnable","spawnable_id"), &YNet::find_network_spawnable);
+    ClassDB::bind_method(D_METHOD("is_network_spawnable","spawnable_path"), &YNet::is_network_spawnable);
+    
 
     ClassDB::bind_method(D_METHOD("find_node_with_net_id","net_id"), &YNet::find_node_with_net_id);
 
@@ -709,20 +711,10 @@ Node *YNet::internal_spawn(int p_network_id, const Ref<PackedScene> &p_spawnable
     // print_line(vformat("[%s] Internal spawn actually spawning net id %d with authority %d",get_multiplayer()->is_server() ? "SERVER" : "CLIENT", p_network_id,authority));
     //spawned_instance->connect("tree_entered",callable_mp(this,&YNet::set_authority_after_entered).bind(spawned_instance).bind(authority), CONNECT_ONE_SHOT);
     //spawned_instance->connect("ready",callable_mp(spawned_instance,&Node::set_multiplayer_authority).bind(authority).bind(true), CONNECT_ONE_SHOT);
-    p_desired_parent_node->connect("child_entered_tree",callable_mp(this,&YNet::set_authority_after_entered).bind(authority), CONNECT_ONE_SHOT);
+    p_desired_parent_node->connect("child_entered_tree",callable_mp(this,&YNet::set_authority_after_entered).bind(p_spawn_pos,authority), CONNECT_ONE_SHOT);
     p_desired_parent_node->add_child(spawned_instance,true);
     spawned_instance->set_multiplayer_authority(authority);
-    auto spawned_node2D = Object::cast_to<Node2D>(spawned_instance);
-    if (spawned_node2D != nullptr) {
-        spawned_node2D->set_global_position(p_spawn_pos);
-        spawned_node2D->connect("tree_exited",callable_mp(this,&YNet::spawned_network_node_exited_tree).bind(p_network_id),CONNECT_ONE_SHOT);
-    } else {
-        auto spawned_node3D = Object::cast_to<Node3D>(spawned_instance);
-        if (spawned_node3D != nullptr) {
-            spawned_node3D->set_global_position(p_spawn_pos);
-            spawned_node3D->connect("tree_exited",callable_mp(this,&YNet::spawned_network_node_exited_tree).bind(p_network_id),CONNECT_ONE_SHOT);
-        }
-    }
+    spawned_instance->connect("tree_exited",callable_mp(this,&YNet::spawned_network_node_exited_tree).bind(p_network_id),CONNECT_ONE_SHOT);
     yrpc_to_node_hash_map[p_network_id] = spawned_instance->get_instance_id();
     networked_spawned_objects[p_network_id] = NetworkSpawnedObjectInfo{p_network_id, desired_spawn_path_id, p_spawn_name, spawned_instance->get_instance_id(), p_desired_parent, authority, _spawn_x, _spawn_y, _spawn_z};
     if (queued_networked_spawned_objects.has(p_network_id))
@@ -730,8 +722,9 @@ Node *YNet::internal_spawn(int p_network_id, const Ref<PackedScene> &p_spawnable
     return spawned_instance;
 }
 
-void YNet::set_authority_after_entered(Node* node_entered_tree, int authority) {
+void YNet::set_authority_after_entered(Node* node_entered_tree, const Variant &p_spawn_pos, int authority ) {
     if (node_entered_tree != nullptr) {
+        node_entered_tree->call("set_global_position",p_spawn_pos);
         node_entered_tree->set_multiplayer_authority(authority,true);
         // print_line("Set authority after entered ",node_entered_tree->get_multiplayer_authority());
     }
