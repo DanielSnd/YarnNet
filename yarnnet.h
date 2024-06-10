@@ -348,6 +348,8 @@ public:
 
     void despawn_node(Node *node_to_despawn);
 
+    String server_or_client_str();
+
     void test_send_sync();
 
     void send_sync_vars(uint64_t p_cur_usec);

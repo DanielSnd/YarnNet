@@ -214,11 +214,14 @@ void YNet::_bind_methods() {
 
     ClassDB::bind_method(D_METHOD("rpc_spawn","network_id","packedscene_path_id","spawn_name","desired_parent_absolute_path","spawn_pos","authority"), &YNet::rpc_spawn,DEFVAL(1));
 
+
     ClassDB::bind_method(D_METHOD("rpc_despawn","network_obj_id"), &YNet::rpc_despawn);
     ClassDB::bind_method(D_METHOD("despawn","network_obj_id"), &YNet::despawn);
     ClassDB::bind_method(D_METHOD("despawn_node","node"), &YNet::despawn_node);
     ClassDB::bind_method(D_METHOD("get_spawned_obj_count"), &YNet::get_spawned_obj_count);
     ClassDB::bind_method(D_METHOD("get_queued_spawn_count"), &YNet::get_queued_spawn_count);
+
+    ClassDB::bind_method(D_METHOD("server_or_client_str"), &YNet::server_or_client_str);
 
     ClassDB::bind_method(D_METHOD("register_for_yrpc","node","yrpc_id"), &YNet::register_for_yrpcs);
     ClassDB::bind_method(D_METHOD("remove_from_yrpc","yrpc_id"), &YNet::remove_from_yrpc_receiving_map);
@@ -816,6 +819,12 @@ void YNet::despawn_node(Node* node_to_despawn) {
     despawn(net_id_despawning);
 }
 
+String YNet::server_or_client_str() {
+    if (scene_multiplayer == nullptr)
+        return "NULL";
+    return scene_multiplayer->is_server() ? "SERVER" : "CLIENT";
+}
+
 
 void YNet::test_send_sync() {
     HashMap<uint8_t,Variant> test_hash_map;
@@ -1093,7 +1102,8 @@ void YNet::spawned_network_node_exited_tree(int p_nid) {
     }
     if (networked_spawned_objects.has(p_nid)) {
         networked_spawned_objects.erase(p_nid);
-        if (get_multiplayer()->is_server()) {
+        const auto _multiplayer = get_multiplayer();
+        if (_multiplayer.is_valid() && get_multiplayer()->is_server()) {
             Array p_arguments;
             p_arguments.push_back(p_nid);
             int argcount = p_arguments.size();

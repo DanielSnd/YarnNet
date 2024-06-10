@@ -1,6 +1,8 @@
 # Prerequisites
 *.d
 
+*.arm64.d
+*.arm64.simulator.d
 # Compiled Object files
 *.slo
 *.lo
