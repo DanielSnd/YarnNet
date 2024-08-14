@@ -204,6 +204,7 @@ void YNet::_bind_methods() {
     
 
     ClassDB::bind_method(D_METHOD("find_node_with_net_id","net_id"), &YNet::find_node_with_net_id);
+    ClassDB::bind_method(D_METHOD("update_networked_property_syncers"), &YNet::update_networked_property_syncers);
 
     ClassDB::bind_method(D_METHOD("clear_all_spawned_network_nodes"), &YNet::clear_all_spawned_network_nodes);
     ClassDB::bind_method(D_METHOD("register_sync_property","networked_node","property_path", "authority", "always_sync"), &YNet::register_sync_property, DEFVAL(1), DEFVAL(false));
@@ -915,15 +916,20 @@ void YNet::send_sync_vars(uint64_t p_cur_usec) {
     packet_cache.write[0] = scene_multiplayer->NETWORK_COMMAND_RAW;
 	packet_cache.write[1] = node_id_compression;
 
+    if (debugging >= ALL)
+        print_line(vformat("%s sending %d bytes",server_or_client_str(), ofs));
+
     scene_multiplayer->send_command(0,packet_cache.ptr(), ofs);
     queued_to_send_property_syncers.clear();
 }
 
 void YNet::on_received_peer_packet(int packet_from, const Vector<uint8_t> &packet_received) {
     int _packet_size = static_cast<int>(packet_received.size());
-    //print_line(vformat("On Received peer packet from [%d] size [%d] packet byte 0 [%d]",packet_from,_packet_size,packet_received[0]));
+    if (debugging >= ALL)
+        print_line(vformat("%s On Received peer packet from [%d] size [%d] packet byte 0 [%d]", server_or_client_str() ,packet_from,_packet_size,packet_received[0]));
     if (_packet_size > 4 && packet_received[1] == 72) {
-        //print_line(vformat("Received packet with size %d, with %d as the first byte and %d as the second byte", _packet_size, packet_received[2], packet_received[3]));
+        if (debugging >= ALL)
+            print_line(vformat("%s Received packet with size %d, with %d as the first byte and %d as the second byte", server_or_client_str(), _packet_size, packet_received[2], packet_received[3]));
         received_sync_packet(packet_from, packet_received);
     }
 }
@@ -945,7 +951,8 @@ void YNet::received_sync_packet(int received_from, const Vector<uint8_t> &p_buff
     }
     for (int i = 0; i < static_cast<int>(amount_received); ++i) {
         int net_id = static_cast<int>(decode_uint32(&p_buffer[ofs]));
-        //print_line(vformat("[%s] Received sync packet netid %d has network id to authority? %s %d received from %d",get_multiplayer()->is_server() ? "SERVER" : "CLIENT", net_id, networked_id_to_authority.has(net_id), networked_id_to_authority.has(net_id) ? networked_id_to_authority[net_id] : 0, received_from));
+        if (debugging >= ALL)
+            print_line(vformat("[%s] Received sync packet netid %d has network id to authority? %s %d received from %d",get_multiplayer()->is_server() ? "SERVER" : "CLIENT", net_id, networked_id_to_authority.has(net_id), networked_id_to_authority.has(net_id) ? networked_id_to_authority[net_id] : 0, received_from));
         bool can_receive_net_id = networked_id_to_authority.has(net_id) && networked_id_to_authority[net_id] == received_from;
         ofs += 4;
         uint8_t amount_of_properties_received = p_buffer[ofs];
@@ -959,10 +966,12 @@ void YNet::received_sync_packet(int received_from, const Vector<uint8_t> &p_buff
             ERR_FAIL_COND_MSG(err != OK, "Invalid packet received. Unable to decode state variable.");
             ofs += vlen;
 
-            //print_line(vformat("Received for netid %d property %d value %s. From %d Can receive? %s",net_id,property_index_received,v,received_from, can_receive_net_id));
+            if (debugging >= ALL)
+                print_line(vformat("Received for netid %d property %d value %s. From %d Can receive? %s",net_id,property_index_received,v,received_from, can_receive_net_id));
             if (can_receive_net_id) {
                 if (networked_property_syncers.has(net_id) && property_index_received < networked_property_syncers[net_id].size()) {
-                    //print_line("Setting current value for property index");
+                    // if (debugging >= ALL)
+                    //     print_line("Setting current value for property index");
                     networked_property_syncers[net_id][property_index_received]->set_current_val(v);
                 } else {
                     HashMap<uint8_t, Variant>& inner_map = queued_received_property_syncers[net_id];
@@ -1075,7 +1084,7 @@ void YNet::_notification(int p_what) {
         case NOTIFICATION_READY: {
             scene_multiplayer = get_multiplayer();
             scene_multiplayer->connect("peer_packet", callable_mp(this, &YNet::on_received_peer_packet));
-            get_multiplayer()->connect("connected_to_server",callable_mp(this,&YNet::on_connected_to_server));
+            scene_multiplayer->connect("connected_to_server",callable_mp(this,&YNet::on_connected_to_server));
             this->rpc_config(receive_yrpc_stringname,create_rpc_dictionary_config(MultiplayerAPI::RPC_MODE_ANY_PEER, MultiplayerPeer::TRANSFER_MODE_UNRELIABLE_ORDERED, false, 0));
             this->rpc_config(receive_yrpc_also_local_stringname,create_rpc_dictionary_config(MultiplayerAPI::RPC_MODE_ANY_PEER, MultiplayerPeer::TRANSFER_MODE_UNRELIABLE_ORDERED, true, 0));
             this->rpc_config(rpc_spawn_stringname,create_rpc_dictionary_config(MultiplayerAPI::RPC_MODE_AUTHORITY, MultiplayerPeer::TRANSFER_MODE_RELIABLE, false, 0));
@@ -1150,29 +1159,6 @@ Dictionary YNet::create_rpc_dictionary_config(MultiplayerAPI::RPCMode p_rpc_mode
 }
 
 bool YNet::process_packets() {
-    count_to_check_should_spawn += 1;
-    if (count_to_check_should_spawn > 30) {
-        count_to_check_should_spawn = 0;
-        if (!queued_networked_spawned_objects.is_empty() && !pause_receive_spawns) {
-            Vector<NetworkSpawnedObjectInfo> infos_to_spawn;
-            for (const auto& queued_spawnables: queued_networked_spawned_objects) {
-                auto _get_node_or_null = get_node_or_null(queued_spawnables.value.desired_parent);
-                if (_get_node_or_null != nullptr) {
-                    infos_to_spawn.push_back(queued_spawnables.value);
-                }
-            }
-            for (const auto& to_spawn: infos_to_spawn) {
-                internal_spawn_with_queued_struct(to_spawn);
-            }
-            // const int amount_spawned = static_cast<int>(infos_to_spawn.size());
-            // if (amount_spawned > 0) {
-            //     const int amount_queued_after = static_cast<int>(queued_networked_spawned_objects.size());
-            //     const int amount_currently_spawned = static_cast<int>(networked_spawned_objects.size());
-            //     //print_line(vformat("[%s] Had %d queued before, spawned %d, had %d queued after. Total spawned now: %d",get_multiplayer()->is_server() ? "SERVER" : "CLIENT",amount_queued,amount_spawned,amount_queued_after,amount_currently_spawned));
-            // }
-        }
-    }
-
     if(offline_mode) {
         return true;
     }
@@ -1491,6 +1477,7 @@ void YNet::do_process() {
 
     if (client_state == STATE_OPEN) {
         process_packets();
+        update_networked_property_syncers();
     } else if(client_state == STATE_CLOSING) {
     } else if(client_state == STATE_CLOSED) {
         emit_signal(SNAME("disconnected"),client->get_close_code(),client->get_close_reason());
@@ -1503,17 +1490,38 @@ void YNet::do_process() {
         }
         set_process(false);
     }
+}
 
-    if (!networked_property_syncers.is_empty()) {
+void YNet::update_networked_property_syncers() {
+    count_to_check_should_spawn += 1;
+    if (count_to_check_should_spawn > 30) {
+        count_to_check_should_spawn = 0;
+        if (!queued_networked_spawned_objects.is_empty() && !pause_receive_spawns) {
+            Vector<NetworkSpawnedObjectInfo> infos_to_spawn;
+            for (const auto& queued_spawnables: queued_networked_spawned_objects) {
+                auto _get_node_or_null = get_node_or_null(queued_spawnables.value.desired_parent);
+                if (_get_node_or_null != nullptr) {
+                    infos_to_spawn.push_back(queued_spawnables.value);
+                }
+            }
+            for (const auto& to_spawn: infos_to_spawn) {
+                internal_spawn_with_queued_struct(to_spawn);
+            }
+        }
+    }
+
+    if (!scene_multiplayer.is_null() && scene_multiplayer.is_valid() && scene_multiplayer->has_multiplayer_peer() && !networked_property_syncers.is_empty()) {
         uint64_t usec = OS::get_singleton()->get_ticks_usec();
         if (last_watched_synced_vars > usec) last_watched_synced_vars = usec;
         if (last_sent_synced_vars > usec) last_sent_synced_vars = usec;
-        //print_line(vformat("last watched sync vars %d + interval %d < usec %d     [ %d < %d ]    %s",last_watched_synced_vars,watch_synced_vars_interval,usec,last_watched_synced_vars + watch_synced_vars_interval,usec,last_watched_synced_vars + watch_synced_vars_interval < usec));
+        if (debugging >= ALL)
+            print_line(vformat("%s last watched sync vars %d + interval %d < usec %d     [ %d < %d ]    %s",server_or_client_str(),last_watched_synced_vars,watch_synced_vars_interval,usec,last_watched_synced_vars + watch_synced_vars_interval,usec,last_watched_synced_vars + watch_synced_vars_interval < usec));
         if (last_watched_synced_vars + watch_synced_vars_interval < usec) {
             last_watched_synced_vars = usec;
             int my_unique_id = scene_multiplayer->get_unique_id();
             for (const auto& netpropsync: networked_property_syncers) {
-                //print_line(vformat("my id %d, networked id to authority has %d? %s is my id? %s", my_unique_id, netpropsync.key, networked_id_to_authority.has(netpropsync.key), networked_id_to_authority.has(netpropsync.key) && networked_id_to_authority[netpropsync.key] == my_unique_id));
+                // if (debugging >= ALL)
+                //     print_line(vformat("%s my id %d, networked id to authority has %d? %s is my id? %s", server_or_client_str(), my_unique_id, netpropsync.key, networked_id_to_authority.has(netpropsync.key), networked_id_to_authority.has(netpropsync.key) && networked_id_to_authority[netpropsync.key] == my_unique_id));
                 if (networked_id_to_authority.has(netpropsync.key) && networked_id_to_authority[netpropsync.key] == my_unique_id) {
                     auto syncproperties = netpropsync.value;
                     for (int i = 0; i < syncproperties.size(); ++i) {
@@ -1525,7 +1533,8 @@ void YNet::do_process() {
                             // Add (or modify) the value in the inner HashMap
                             inner_map[syncproperties[i]->property_syncer_index] = syncproperties[i]->current_val;
                         }
-                       // print_line(vformat("my id %d. netid %d property index %d value now %s value after %s, is different? %s",my_unique_id, syncproperties[i]->net_id,syncproperties[i]->property_syncer_index, value_before, syncproperties[i]->current_val, value_before != syncproperties[i]->current_val));
+                        // if (debugging >= ALL)
+                        //     print_line(vformat("%s my id %d. netid %d property index %d value now %s value after %s, is different? %s",server_or_client_str(),my_unique_id, syncproperties[i]->net_id,syncproperties[i]->property_syncer_index, value_before, syncproperties[i]->current_val, value_before != syncproperties[i]->current_val));
                     }
                 }
             }
@@ -1534,7 +1543,8 @@ void YNet::do_process() {
         if (last_sent_synced_vars + send_synced_vars_interval < usec && !queued_to_send_property_syncers.is_empty()) {
             last_sent_synced_vars = usec;
             send_sync_vars(usec);
-            //print_line("Sent sync vars maybe");
+            if (debugging >= ALL)
+                print_line(server_or_client_str(), "Sent sync vars maybe");
         }
     }
 }

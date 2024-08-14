@@ -107,6 +107,8 @@ protected:
 
     void do_process();
 
+    void update_networked_property_syncers();
+
     void setup_node();
 
     int get_queued_spawn_count() const {
