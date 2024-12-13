@@ -111,6 +111,8 @@ protected:
 
     void setup_node();
 
+    void cleanup_node();
+
     int get_queued_spawn_count() const {
         return static_cast<int>(queued_networked_spawned_objects.size());
     }

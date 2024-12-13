@@ -490,6 +490,12 @@ Error YNet::_send_yrpc(const Variant **p_args, int p_argcount, Callable::CallErr
     return scene_multiplayer->rpcp(this, 0, receive_yrpc_stringname, p_args, p_argcount);
 }
 
+void YNet::cleanup_node() {
+    if (is_inside_tree()) {
+        queue_free();
+    }
+}
+
 void YNet::setup_node() {
     add_setting("YNet/settings/enabled", false, Variant::Type::BOOL);
     add_setting("YNet/settings/protocol", "change_me", Variant::Type::STRING);
@@ -503,10 +509,12 @@ void YNet::setup_node() {
         bool is_enabled = GLOBAL_GET("YNet/settings/enabled");
         if(!is_enabled) {
             ynet_settings_enabled = false;
+            queue_free();
             return;
         }
         ynet_settings_enabled=true;
         SceneTree::get_singleton()->get_root()->call_deferred("add_child",this);
+        SceneTree::get_singleton()->get_root()->connect("tree_exiting", callable_mp(this, &YNet::cleanup_node));
         set_name("YNet");
         already_setup_in_tree=true;
     }
@@ -1837,11 +1845,15 @@ void YNet::clear_unhandled_packets() {
 YNet::~YNet() {
     clear_unhandled_packets();
     connections_map.clear();
-    if (singleton != nullptr && singleton == this) {
-        singleton = nullptr;
-    }
     if (client.is_valid()) {
         client.unref();
+    }
+    if (singleton != nullptr && singleton == this) {
+        print_line("Removing ynet singleton");
+        if (Engine::get_singleton()->has_singleton("YNet")) {
+            Engine::get_singleton()->remove_singleton("YNet");
+        }
+        singleton = nullptr;
     }
 }
 
