@@ -1849,7 +1849,7 @@ YNet::~YNet() {
         client.unref();
     }
     if (singleton != nullptr && singleton == this) {
-        print_line("Removing ynet singleton");
+        // print_line("Removing ynet singleton");
         if (Engine::get_singleton()->has_singleton("YNet")) {
             Engine::get_singleton()->remove_singleton("YNet");
         }
