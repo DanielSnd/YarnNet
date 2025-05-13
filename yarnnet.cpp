@@ -10,7 +10,7 @@ void YNetPropertySyncer::_bind_methods() {
 
 }
 
-YNetPropertySyncer::YNetPropertySyncer(): net_id(0), property_syncer_index(0), authority(false), sync_always(false) {
+YNetPropertySyncer::YNetPropertySyncer(): property_syncer_index(0), target(), property(), net_id(0), current_val(), authority(0), sync_always(false) {
 }
 
 uint32_t YNetPropertySyncer::get_property_syncer_id_from_property_stringnames(const Vector<StringName> &p_property) {
@@ -514,7 +514,7 @@ void YNet::setup_node() {
         }
         ynet_settings_enabled=true;
         SceneTree::get_singleton()->get_root()->call_deferred("add_child",this);
-        SceneTree::get_singleton()->get_root()->connect("tree_exiting", callable_mp(this, &YNet::cleanup_node));
+        SceneTree::get_singleton()->get_root()->connect(SceneStringName(tree_exiting), callable_mp(this, &YNet::cleanup_node));
         set_name("YNet");
         already_setup_in_tree=true;
     }
@@ -528,7 +528,6 @@ void YNet::setup_node() {
     watch_synced_vars_interval = static_cast<uint64_t>((static_cast<double>(GLOBAL_GET("YNet/settings/watch_synced_properties_interval")) * 1000 * 1000));
     send_synced_vars_interval = static_cast<uint64_t>((static_cast<double>(GLOBAL_GET("YNet/settings/send_synced_properties_interval")) * 1000 * 1000));
 }
-YNet* YNet::singleton = nullptr;
 
 void YNet::engineio_disconnect() {
     if(client.is_valid()) {
@@ -723,10 +722,10 @@ Node *YNet::internal_spawn(int p_network_id, const Ref<PackedScene> &p_spawnable
     // print_line(vformat("[%s] Internal spawn actually spawning net id %d with authority %d",get_multiplayer()->is_server() ? "SERVER" : "CLIENT", p_network_id,authority));
     //spawned_instance->connect("tree_entered",callable_mp(this,&YNet::set_authority_after_entered).bind(spawned_instance).bind(authority), CONNECT_ONE_SHOT);
     //spawned_instance->connect("ready",callable_mp(spawned_instance,&Node::set_multiplayer_authority).bind(authority).bind(true), CONNECT_ONE_SHOT);
-    p_desired_parent_node->connect("child_entered_tree",callable_mp(this,&YNet::set_authority_after_entered).bind(p_spawn_pos,authority), CONNECT_ONE_SHOT);
+    p_desired_parent_node->connect(SNAME("child_entered_tree"), callable_mp(this,&YNet::set_authority_after_entered).bind(p_spawn_pos,authority), CONNECT_ONE_SHOT);
     p_desired_parent_node->add_child(spawned_instance,true);
     spawned_instance->set_multiplayer_authority(authority);
-    spawned_instance->connect("tree_exited",callable_mp(this,&YNet::spawned_network_node_exited_tree).bind(p_network_id),CONNECT_ONE_SHOT);
+    spawned_instance->connect(SceneStringName(tree_exited),callable_mp(this,&YNet::spawned_network_node_exited_tree).bind(p_network_id),CONNECT_ONE_SHOT);
     yrpc_to_node_hash_map[p_network_id] = spawned_instance->get_instance_id();
     networked_spawned_objects[p_network_id] = NetworkSpawnedObjectInfo{p_network_id, desired_spawn_path_id, p_spawn_name, spawned_instance->get_instance_id(), p_desired_parent, authority, _spawn_x, _spawn_y, _spawn_z};
     if (queued_networked_spawned_objects.has(p_network_id))
@@ -1019,7 +1018,7 @@ YNet* YNet::engineio_connect(String _url) {
         if(debugging == ALL)
             print_line("[YNet] WebSocket created? ",client.is_valid());
     } else {
-        if (client->get_ready_state() != STATE_CLOSED) {
+        if (static_cast<State>(client->get_ready_state()) != STATE_CLOSED) {
             engineio_disconnect();
             ERR_PRINT("[YNet] Called connect when already connected");
             emit_signal(SNAME("connected"),"",false);
@@ -1091,8 +1090,8 @@ void YNet::_notification(int p_what) {
         }break;
         case NOTIFICATION_READY: {
             scene_multiplayer = get_multiplayer();
-            scene_multiplayer->connect("peer_packet", callable_mp(this, &YNet::on_received_peer_packet));
-            scene_multiplayer->connect("connected_to_server",callable_mp(this,&YNet::on_connected_to_server));
+            scene_multiplayer->connect(SNAME("peer_packet"), callable_mp(this, &YNet::on_received_peer_packet));
+            scene_multiplayer->connect(SNAME("connected_to_server"),callable_mp(this,&YNet::on_connected_to_server));
             this->rpc_config(receive_yrpc_stringname,create_rpc_dictionary_config(MultiplayerAPI::RPC_MODE_ANY_PEER, MultiplayerPeer::TRANSFER_MODE_UNRELIABLE_ORDERED, false, 0));
             this->rpc_config(receive_yrpc_also_local_stringname,create_rpc_dictionary_config(MultiplayerAPI::RPC_MODE_ANY_PEER, MultiplayerPeer::TRANSFER_MODE_UNRELIABLE_ORDERED, true, 0));
             this->rpc_config(rpc_spawn_stringname,create_rpc_dictionary_config(MultiplayerAPI::RPC_MODE_AUTHORITY, MultiplayerPeer::TRANSFER_MODE_RELIABLE, false, 0));
@@ -1365,7 +1364,7 @@ bool YNet::socketio_parse_packet(String& payload) {
     }
     if(debugging == ALL)
         print_line("[YNet] Received socketio event ",packetType," data parsed: ",_data," payload parsed: ",payload);
-    switch (packetType) {
+    switch (static_cast<SocketIOPacketType>(packetType)) {
         case SocketIOPacketType::CONNECT: {
             Dictionary data_dict = _data;
             if (data_dict.has("sid")) {
@@ -1445,7 +1444,7 @@ void YNet::update_last_engine_state() {
     if(offline_mode) {
         return;
     }
-    if (last_engine_state != client->get_ready_state()) {
+    if (last_engine_state != static_cast<State>(client->get_ready_state())) {
         last_engine_state = static_cast<State>(static_cast<int>(client->get_ready_state()));
         if(debugging > 1) {
             switch ((State)last_engine_state) {
@@ -1481,7 +1480,7 @@ void YNet::do_process() {
     }
     client->poll();
 
-    auto client_state = client->get_ready_state();
+    State client_state = static_cast<State>(client->get_ready_state());
 
     if (client_state == STATE_OPEN) {
         process_packets();
@@ -1792,7 +1791,7 @@ void YNet::on_host_migrated(const String &p_new_host) {
 
 void YNet::register_for_yrpcs(Node *p_registering_node, int registering_id) {
     yrpc_to_node_hash_map[registering_id] = p_registering_node->get_instance_id();
-    p_registering_node->connect("tree_exiting", callable_mp(this,&YNet::remove_from_yrpc_receiving_map).bind(registering_id));
+    p_registering_node->connect(SceneStringName(tree_exiting), callable_mp(this,&YNet::remove_from_yrpc_receiving_map).bind(registering_id), CONNECT_ONE_SHOT);
 }
 
 uint32_t YNet::string_to_hash_id(const String &p_string) {
@@ -1810,10 +1809,6 @@ uint32_t YNet::string_to_hash_id(const String &p_string) {
         hashv = hash_fmix32(hashv);
         hashv = hashv & 0x7FFFFFFF; // Make it compatible with unsigned, since negative ID is used for exclusion
         return hashv;
-}
-
-YNet * YNet::get_singleton() {
-    return singleton;
 }
 
 YNet::YNet() {

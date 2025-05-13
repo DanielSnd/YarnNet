@@ -1,0 +1,470 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="YNet" inherits="Node" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+	</brief_description>
+	<description>
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="add_network_spawnable">
+			<return type="void" />
+			<param index="0" name="spawnable_path" type="String" />
+			<description>
+			</description>
+		</method>
+		<method name="clear_all_spawned_network_nodes">
+			<return type="void" />
+			<description>
+			</description>
+		</method>
+		<method name="create_room">
+			<return type="YNet" />
+			<description>
+			</description>
+		</method>
+		<method name="create_room_with_code">
+			<return type="YNet" />
+			<param index="0" name="roomcode" type="String" />
+			<description>
+			</description>
+		</method>
+		<method name="despawn">
+			<return type="void" />
+			<param index="0" name="network_obj_id" type="int" />
+			<description>
+			</description>
+		</method>
+		<method name="despawn_node">
+			<return type="void" />
+			<param index="0" name="node" type="Node" />
+			<description>
+			</description>
+		</method>
+		<method name="find_network_spawnable">
+			<return type="PackedScene" />
+			<param index="0" name="spawnable_id" type="int" />
+			<description>
+			</description>
+		</method>
+		<method name="find_node_with_net_id">
+			<return type="Node" />
+			<param index="0" name="net_id" type="int" />
+			<description>
+			</description>
+		</method>
+		<method name="get_network_spawnable_id">
+			<return type="int" />
+			<param index="0" name="spawnable_path" type="String" />
+			<description>
+			</description>
+		</method>
+		<method name="get_new_network_id">
+			<return type="int" />
+			<description>
+			</description>
+		</method>
+		<method name="get_queued_spawn_count" qualifiers="const">
+			<return type="int" />
+			<description>
+			</description>
+		</method>
+		<method name="get_room_info">
+			<return type="YNet" />
+			<param index="0" name="roomCode" type="String" default="&quot;&quot;" />
+			<description>
+			</description>
+		</method>
+		<method name="get_room_list">
+			<return type="YNet" />
+			<description>
+			</description>
+		</method>
+		<method name="get_spawned_obj_count" qualifiers="const">
+			<return type="int" />
+			<description>
+			</description>
+		</method>
+		<method name="is_network_spawnable">
+			<return type="bool" />
+			<param index="0" name="spawnable_path" type="String" />
+			<description>
+			</description>
+		</method>
+		<method name="join_or_create_room">
+			<return type="YNet" />
+			<param index="0" name="roomcode" type="String" default="&quot;&quot;" />
+			<description>
+			</description>
+		</method>
+		<method name="join_room">
+			<return type="YNet" />
+			<param index="0" name="roomcode" type="String" />
+			<description>
+			</description>
+		</method>
+		<method name="join_room_with_password">
+			<return type="YNet" />
+			<param index="0" name="roomCode" type="String" />
+			<param index="1" name="password" type="String" />
+			<description>
+			</description>
+		</method>
+		<method name="leave_room">
+			<return type="YNet" />
+			<description>
+			</description>
+		</method>
+		<method name="receive_yrpc" qualifiers="vararg">
+			<return type="Variant" />
+			<param index="0" name="yrpc_info" type="Array" />
+			<description>
+			</description>
+		</method>
+		<method name="receive_yrpc_call_local" qualifiers="vararg">
+			<return type="Variant" />
+			<param index="0" name="yrpc_info" type="Array" />
+			<description>
+			</description>
+		</method>
+		<method name="register_for_yrpc">
+			<return type="void" />
+			<param index="0" name="node" type="Node" />
+			<param index="1" name="yrpc_id" type="int" />
+			<description>
+			</description>
+		</method>
+		<method name="register_sync_property">
+			<return type="YNetPropertySyncer" />
+			<param index="0" name="networked_node" type="Node" />
+			<param index="1" name="property_path" type="NodePath" />
+			<param index="2" name="authority" type="int" default="1" />
+			<param index="3" name="always_sync" type="bool" default="false" />
+			<description>
+			</description>
+		</method>
+		<method name="remove_from_yrpc">
+			<return type="void" />
+			<param index="0" name="yrpc_id" type="int" />
+			<description>
+			</description>
+		</method>
+		<method name="rpc_despawn">
+			<return type="void" />
+			<param index="0" name="network_obj_id" type="int" />
+			<description>
+			</description>
+		</method>
+		<method name="rpc_recv_sync_vars">
+			<return type="void" />
+			<param index="0" name="synced_vars_data" type="Variant" />
+			<description>
+			</description>
+		</method>
+		<method name="rpc_request_spawned_nodes">
+			<return type="void" />
+			<param index="0" name="requester_id" type="int" />
+			<description>
+			</description>
+		</method>
+		<method name="rpc_respond_with_spawned_nodes">
+			<return type="void" />
+			<param index="0" name="spawned_nodes_data" type="Array" />
+			<description>
+			</description>
+		</method>
+		<method name="rpc_spawn">
+			<return type="void" />
+			<param index="0" name="network_id" type="int" />
+			<param index="1" name="packedscene_path_id" type="int" />
+			<param index="2" name="spawn_name" type="String" />
+			<param index="3" name="desired_parent_absolute_path" type="String" />
+			<param index="4" name="spawn_pos" type="Variant" />
+			<param index="5" name="authority" type="int" default="1" />
+			<description>
+			</description>
+		</method>
+		<method name="send_and_receive_yrpc" qualifiers="vararg">
+			<return type="int" enum="Error" />
+			<param index="0" name="method" type="Callable" />
+			<description>
+			</description>
+		</method>
+		<method name="send_yrpc" qualifiers="vararg">
+			<return type="int" enum="Error" />
+			<param index="0" name="method" type="Callable" />
+			<description>
+			</description>
+		</method>
+		<method name="server_or_client_str">
+			<return type="String" />
+			<description>
+			</description>
+		</method>
+		<method name="set_can_host_migrate">
+			<return type="int" enum="Error" />
+			<param index="0" name="newCanHostMigrate" type="bool" />
+			<description>
+			</description>
+		</method>
+		<method name="set_extra_info">
+			<return type="int" enum="Error" />
+			<param index="0" name="new_extra_info" type="String" />
+			<description>
+			</description>
+		</method>
+		<method name="set_max_players">
+			<return type="int" enum="Error" />
+			<param index="0" name="newMaxPlayers" type="int" />
+			<description>
+			</description>
+		</method>
+		<method name="set_password">
+			<return type="int" enum="Error" />
+			<param index="0" name="newPassword" type="String" />
+			<description>
+			</description>
+		</method>
+		<method name="set_private">
+			<return type="int" enum="Error" />
+			<param index="0" name="newPrivate" type="bool" />
+			<description>
+			</description>
+		</method>
+		<method name="set_room_name">
+			<return type="int" enum="Error" />
+			<param index="0" name="newRoomName" type="String" />
+			<description>
+			</description>
+		</method>
+		<method name="setup_node">
+			<return type="void" />
+			<description>
+			</description>
+		</method>
+		<method name="socketio_connect">
+			<return type="void" />
+			<param index="0" name="name_space" type="String" default="&quot;/&quot;" />
+			<description>
+			</description>
+		</method>
+		<method name="socketio_disconnect">
+			<return type="void" />
+			<param index="0" name="name_space" type="String" default="&quot;/&quot;" />
+			<description>
+			</description>
+		</method>
+		<method name="socketio_send_event">
+			<return type="int" enum="Error" />
+			<param index="0" name="event_name" type="String" />
+			<param index="1" name="data" type="Variant" default="null" />
+			<param index="2" name="name_space" type="String" default="&quot;&quot;" />
+			<description>
+			</description>
+		</method>
+		<method name="spawn">
+			<return type="Node" />
+			<param index="0" name="spawnable_scene" type="PackedScene" />
+			<param index="1" name="spawned_name" type="String" />
+			<param index="2" name="parent_path" type="NodePath" />
+			<param index="3" name="global_pos" type="Variant" />
+			<param index="4" name="authority" type="int" default="1" />
+			<description>
+			</description>
+		</method>
+		<method name="spawn_with_path">
+			<return type="Node" />
+			<param index="0" name="spawnable_scene_path" type="PackedScene" />
+			<param index="1" name="spawned_name" type="String" />
+			<param index="2" name="parent_path" type="NodePath" />
+			<param index="3" name="global_pos" type="Variant" />
+			<param index="4" name="authority" type="int" default="1" />
+			<description>
+			</description>
+		</method>
+		<method name="string_to_hash_id" qualifiers="static">
+			<return type="int" />
+			<param index="0" name="str" type="String" />
+			<description>
+			</description>
+		</method>
+		<method name="test_send_sync">
+			<return type="void" />
+			<description>
+			</description>
+		</method>
+		<method name="update_networked_property_syncers">
+			<return type="void" />
+			<description>
+			</description>
+		</method>
+		<method name="ynet_connect">
+			<return type="YNet" />
+			<param index="0" name="url" type="String" />
+			<description>
+			</description>
+		</method>
+		<method name="ynet_disconnect">
+			<return type="void" />
+			<description>
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="debugging" type="int" setter="set_debugging" getter="get_debugging" enum="YNet.DebuggingLevel" default="0">
+		</member>
+		<member name="hashed_socket_id" type="int" setter="set_hashed_socket_id" getter="get_hashed_socket_id" default="0">
+		</member>
+		<member name="host_id" type="String" setter="set_host_id" getter="get_host_id" default="&quot;&quot;">
+		</member>
+		<member name="is_host" type="bool" setter="set_is_host" getter="get_is_host" default="false">
+		</member>
+		<member name="last_used_id" type="int" setter="set_last_used_id" getter="get_last_used_id" default="1">
+		</member>
+		<member name="pause_receive_spawns" type="bool" setter="set_pause_receive_spawns" getter="get_pause_receive_spawns" default="false">
+		</member>
+		<member name="protocol" type="String" setter="set_protocol" getter="get_protocol" default="&quot;change_me&quot;">
+		</member>
+		<member name="real_hashed_socket_id" type="int" setter="set_real_hashed_socket_id" getter="get_real_hashed_socket_id" default="0">
+		</member>
+		<member name="room_id" type="String" setter="set_room_id" getter="get_room_id" default="&quot;&quot;">
+		</member>
+		<member name="room_id_without_protocol" type="String" setter="set_room_id_without_protocol" getter="get_room_id_without_protocol" default="&quot;&quot;">
+		</member>
+		<member name="socket_id" type="String" setter="set_socket_id" getter="get_socket_id" default="&quot;&quot;">
+		</member>
+	</members>
+	<signals>
+		<signal name="connected">
+			<param index="0" name="name_space" type="String" />
+			<param index="1" name="result" type="bool" />
+			<description>
+			</description>
+		</signal>
+		<signal name="disconnected">
+			<param index="0" name="code" type="int" />
+			<param index="1" name="reason" type="String" />
+			<description>
+			</description>
+		</signal>
+		<signal name="engine_message">
+			<param index="0" name="payload" type="String" />
+			<description>
+			</description>
+		</signal>
+		<signal name="event">
+			<param index="0" name="event_name" type="String" />
+			<param index="1" name="payload" type="Object" />
+			<param index="2" name="name_space" type="String" />
+			<description>
+			</description>
+		</signal>
+		<signal name="host_migration">
+			<param index="0" name="new_host_sid" type="String" />
+			<description>
+			</description>
+		</signal>
+		<signal name="player_joined">
+			<param index="0" name="player_sid" type="String" />
+			<description>
+			</description>
+		</signal>
+		<signal name="player_left">
+			<param index="0" name="player_sid" type="String" />
+			<description>
+			</description>
+		</signal>
+		<signal name="room_connected">
+			<param index="0" name="id" type="int" />
+			<description>
+			</description>
+		</signal>
+		<signal name="room_connection_result">
+			<param index="0" name="room_id" type="String" />
+			<param index="1" name="result" type="bool" />
+			<description>
+			</description>
+		</signal>
+		<signal name="room_created">
+			<param index="0" name="new_room_id" type="String" />
+			<description>
+			</description>
+		</signal>
+		<signal name="room_disconnected">
+			<param index="0" name="id" type="int" />
+			<description>
+			</description>
+		</signal>
+		<signal name="room_error">
+			<param index="0" name="returned_error" type="String" />
+			<description>
+			</description>
+		</signal>
+		<signal name="room_info">
+			<param index="0" name="info" type="Dictionary" />
+			<description>
+			</description>
+		</signal>
+		<signal name="room_joined">
+			<param index="0" name="new_room_id" type="String" />
+			<param index="1" name="new_room_host_id" type="String" />
+			<description>
+			</description>
+		</signal>
+		<signal name="room_list">
+			<param index="0" name="list" type="Array" />
+			<description>
+			</description>
+		</signal>
+		<signal name="room_players">
+			<param index="0" name="players" type="Array" />
+			<description>
+			</description>
+		</signal>
+		<signal name="status_changed">
+			<param index="0" name="status" type="int" />
+			<description>
+			</description>
+		</signal>
+	</signals>
+	<constants>
+		<constant name="open" value="0" enum="EngineIOPacketType">
+		</constant>
+		<constant name="close" value="1" enum="EngineIOPacketType">
+		</constant>
+		<constant name="ping" value="2" enum="EngineIOPacketType">
+		</constant>
+		<constant name="pong" value="3" enum="EngineIOPacketType">
+		</constant>
+		<constant name="message" value="4" enum="EngineIOPacketType">
+		</constant>
+		<constant name="upgrade" value="5" enum="EngineIOPacketType">
+		</constant>
+		<constant name="noop" value="6" enum="EngineIOPacketType">
+		</constant>
+		<constant name="CONNECT" value="0" enum="SocketIOPacketType">
+		</constant>
+		<constant name="DISCONNECT" value="1" enum="SocketIOPacketType">
+		</constant>
+		<constant name="EVENT" value="2" enum="SocketIOPacketType">
+		</constant>
+		<constant name="ACK" value="3" enum="SocketIOPacketType">
+		</constant>
+		<constant name="CONNECT_ERROR" value="4" enum="SocketIOPacketType">
+		</constant>
+		<constant name="BINARY_EVENT" value="5" enum="SocketIOPacketType">
+		</constant>
+		<constant name="BINARY_ACK" value="6" enum="SocketIOPacketType">
+		</constant>
+		<constant name="NONE" value="0" enum="DebuggingLevel">
+		</constant>
+		<constant name="MINIMAL" value="1" enum="DebuggingLevel">
+		</constant>
+		<constant name="MOSTMESSAGES" value="2" enum="DebuggingLevel">
+		</constant>
+		<constant name="MESSAGESANDPING" value="3" enum="DebuggingLevel">
+		</constant>
+		<constant name="ALL" value="4" enum="DebuggingLevel">
+		</constant>
+	</constants>
+</class>

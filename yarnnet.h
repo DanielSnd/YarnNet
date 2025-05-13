@@ -16,6 +16,7 @@
 #include "scene/resources/packed_scene.h"
 #include "scene/3d/node_3d.h"
 #include "scene/2d/node_2d.h"
+#include "scene/scene_string_names.h"
 
 
 class YNetPropertySyncer : public RefCounted {
@@ -122,7 +123,7 @@ protected:
     }
 
     bool already_setup_in_tree = false;
-    static YNet* singleton;
+    inline static YNet* singleton = nullptr;
     HashMap<int,ObjectID> yrpc_to_node_hash_map;
 
     void clear_unhandled_packets();
@@ -478,7 +479,7 @@ public:
     bool received_any_packet = false;
     static uint32_t string_to_hash_id(const String &p_string);
 
-    static YNet* get_singleton();
+    _FORCE_INLINE_ static YNet* get_singleton() {return singleton;}
     YNet();
 
     ~YNet();
