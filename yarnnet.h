@@ -10,6 +10,7 @@
 #include "scene/main/window.h"
 #include "scene/main/multiplayer_api.h"
 #include "scene/main/multiplayer_peer.h"
+#include "ynet_types.h"
 #include <cstring>
 
 #include "modules/multiplayer/scene_multiplayer.h"
@@ -17,39 +18,40 @@
 #include "scene/3d/node_3d.h"
 #include "scene/2d/node_2d.h"
 #include "scene/scene_string_names.h"
+#include "ynetsyncer.h"
 
-
-class YNetPropertySyncer : public RefCounted {
-    GDCLASS(YNetPropertySyncer, RefCounted);
-
-protected:
-    static void _bind_methods();
-
-public:
-    YNetPropertySyncer();
-
-    uint8_t property_syncer_index;
-    ObjectID target;
-    Vector<StringName> property;
-    int net_id;
-    Variant current_val;
-    int authority;
-    bool sync_always;
-
-    static uint32_t get_property_syncer_id_from_property_stringnames(const Vector<StringName> &p_property);
-    void set_current_val(const Variant &new_value);
-    bool check_for_changed_value();
-
-    YNetPropertySyncer(int p_net_id, Object *p_target, const Vector<StringName> &p_property, const Variant &p_val, int authority, bool p_sync_always);
-    ~YNetPropertySyncer();
-};
+class YNetPropertySyncer;
 
 class YNet : public Node {
     GDCLASS(YNet, Node);
     
+private:
+    struct YNetRPCConfig {
+		StringName name;
+		MultiplayerAPI::RPCMode rpc_mode = MultiplayerAPI::RPC_MODE_DISABLED;
+		bool call_local = false;
+		MultiplayerPeer::TransferMode transfer_mode = MultiplayerPeer::TRANSFER_MODE_RELIABLE;
+		int channel = 0;
+
+		bool operator==(YNetRPCConfig const &p_other) const {
+			return name == p_other.name;
+		}
+	};
+
+    struct YNetRPCConfigCache {
+        HashMap<uint16_t, YNetRPCConfig> configs;
+        HashMap<StringName, uint16_t> ids;
+    };
+
+    // Cache for RPC configs, keyed by ObjectID
+    HashMap<ObjectID, YNetRPCConfigCache> rpc_config_cache;
+    
 protected:
     static void _bind_methods();
 
+    void _parse_rpc_config(const Dictionary &p_config, bool p_for_node, YNetRPCConfigCache &r_cache);
+    YNetRPCConfig _get_rpc_config(Node *p_node, const StringName &p_method);
+    
     Ref<SceneMultiplayer> scene_multiplayer;
     Ref<YNetPropertySyncer> register_sync_property(Node *p_target, const NodePath &p_property, int authority, bool p_always_sync);
 
@@ -67,9 +69,16 @@ protected:
 
     Error _send_yrpc(const Variant **p_args, int p_argcount, Callable::CallError &r_error);
     Error _send_and_receive_yrpc(const Variant **p_args, int p_argcount, Callable::CallError &r_error);
+    Error _send_yrpc_to(const Variant **p_args, int p_argcount, Callable::CallError &r_error);
+    Variant _receive_yrpc(const Variant **p_args, int p_argcount, Callable::CallError &r_error);
+    Variant _receive_yrpc_also_local(const Variant **p_args, int p_argcount, Callable::CallError &r_error);
 
     StringName receive_yrpc_stringname;
     StringName receive_yrpc_also_local_stringname;
+    StringName receive_yrpc_unreliable_stringname;
+    StringName receive_yrpc_unreliable_also_local_stringname;
+    StringName receive_yrpc_reliable_stringname;
+    StringName receive_yrpc_reliable_also_local_stringname;
     StringName rpc_spawn_stringname;
     StringName rpc_despawn_stringname;
     StringName rpc_request_spawned_nodes_stringname;
@@ -131,15 +140,6 @@ protected:
 public:
     void remove_from_yrpc_receiving_map(int p_yrpc_id);
 
-    Variant _receive_yrpc(const Variant **p_args, int p_argcount, Callable::CallError &r_error);
-    Variant _receive_yrpc_also_local(const Variant **p_args, int p_argcount, Callable::CallError &r_error);
-
-    struct Packet {
-        int source = 0;
-        uint8_t *data = nullptr;
-        uint32_t size = 0;
-    };
-
     enum EngineIOPacketType {
         open = 0,
         close = 1,
@@ -190,7 +190,7 @@ public:
     uint32_t roomlist          = String{"roomlist"   }.hash();
     uint32_t roominfo          = String{"roominfo"   }.hash();
 
-    List<Packet> unhandled_packets;
+    List<YNetTypes::Packet> unhandled_packets;
 
     bool engineio_decode_packet(const uint8_t *packet, int len);
 
@@ -450,6 +450,8 @@ public:
 
     YNet* get_room_list();
 
+    bool was_last_rpc_sender_host() const;
+
     void on_room_created(const String &p_new_room_id);
     void on_room_joined(const String &p_new_room_id, const String &p_host_id);
     void on_room_error(const String &p_room_id);
@@ -487,6 +489,7 @@ public:
     void add_setting(const String& name, const Variant& default_value, Variant::Type type,
             PropertyHint hint = PROPERTY_HINT_NONE, const String& hint_string = "",
             int usage = PROPERTY_USAGE_DEFAULT, bool restart_if_changed = false);
+
 };
 
 VARIANT_ENUM_CAST(YNet::EngineIOPacketType);

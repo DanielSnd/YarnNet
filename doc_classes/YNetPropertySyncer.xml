@@ -1,8 +1,53 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <class name="YNetPropertySyncer" inherits="RefCounted" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
 	<brief_description>
+	A class that handles property synchronization between networked peers.
 	</brief_description>
 	<description>
+	YNetPropertySyncer is responsible for synchronizing properties between networked peers in YNet. It automatically detects changes in properties and sends updates to other peers.
+
+	This class is used internally by YNet when you register properties for synchronization. You typically won't need to interact with it directly, but understanding its role can be helpful for advanced usage.
+
+	Key features:
+	- Automatic property change detection
+	- Efficient network transmission
+	- Support for any property type that can be serialized
+	- Authority-based synchronization
+
+	How it works:
+	1. When a property is registered for synchronization, YNet creates a YNetPropertySyncer instance
+	2. The syncer monitors the property for changes
+	3. When a change is detected, it's queued for transmission
+	4. Changes are sent to other peers based on the configured authority
+
+	Example of how YNet uses this internally:
+
+	[codeblock]
+	# This is handled automatically when you call:
+	ynet.register_sync_property(player, "position", 1)
+
+	# Internally, YNet creates a YNetPropertySyncer that:
+	# - Monitors the "position" property
+	# - Detects changes
+	# - Queues them for transmission
+	# - Sends updates to other peers
+	[/codeblock]
+
+	Property Synchronization:
+	The syncer automatically handles property synchronization based on the authority system:
+
+	[codeblock]
+	# When a property changes on the authority peer:
+	# 1. The change is detected
+	# 2. The new value is queued for transmission
+	# 3. The value is sent to other peers
+	# 4. Other peers update their local values
+
+	# This happens automatically for any registered property
+	player.position = Vector2(100, 100)  # Will be synchronized automatically
+	[/codeblock]
+
+	Note: This class is designed to work seamlessly with YNet and should not be used independently. All property synchronization should be handled through YNet's register_sync_property method.
 	</description>
 	<tutorials>
 	</tutorials>

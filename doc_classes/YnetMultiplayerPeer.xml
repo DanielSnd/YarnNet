@@ -1,8 +1,30 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <class name="YnetMultiplayerPeer" inherits="MultiplayerPeer" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
 	<brief_description>
+	A MultiplayerPeer implementation that integrates with YNet's networking system.
 	</brief_description>
 	<description>
+	YnetMultiplayerPeer is the underlying networking implementation used by YNet. It handles the low-level networking operations and integrates with Godot's MultiplayerAPI.
+
+	This class is primarily used internally by YNet and you typically won't need to interact with it directly. However, understanding its role can be helpful for advanced usage.
+
+	Example of how YNet uses this internally:
+
+	[codeblock]
+	# This is handled automatically by YNet
+	var peer = YnetMultiplayerPeer.new()
+	get_multiplayer().set_multiplayer_peer(peer)
+	[/codeblock]
+
+	[codeblock]
+	# These are handled automatically by YNet
+	peer.on_player_joined("player_id")
+	peer.on_player_left("player_id")
+	peer.on_room_connected(1)  # 1 is typically the server
+	peer.on_room_disconnected(1)
+	[/codeblock]
+
+	Note: This class is designed to work seamlessly with YNet and should not be used independently. All networking operations should be performed through the YNet class instead.
 	</description>
 	<tutorials>
 	</tutorials>

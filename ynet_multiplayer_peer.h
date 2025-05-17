@@ -5,12 +5,15 @@
 #ifndef YNET_MULTIPLAYER_PEER_H
 #define YNET_MULTIPLAYER_PEER_H
 #include "yarnnet.h"
+#include "ynet_types.h"
 #include "modules/websocket/websocket_peer.h"
 #include "scene/main/multiplayer_peer.h"
 #include "core/error/error_list.h"
 #include "core/io/stream_peer_tls.h"
 #include "core/templates/list.h"
 #include "modules/multiplayer/multiplayer_synchronizer.h"
+
+class YNet;
 
 class YnetMultiplayerPeer : public MultiplayerPeer {
 	GDCLASS(YnetMultiplayerPeer, MultiplayerPeer);
@@ -29,7 +32,7 @@ protected:
 	ConnectionStatus connection_status = CONNECTION_DISCONNECTED;
 
 	HashMap<int, String> peers_map;
-	YNet::Packet current_packet;
+	YNetTypes::Packet current_packet;
 
 	int target_peer = 0;
 

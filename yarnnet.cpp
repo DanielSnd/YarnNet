@@ -6,81 +6,6 @@
 #include "core/object/script_language.h"
 #include "scene/2d/node_2d.h"
 
-void YNetPropertySyncer::_bind_methods() {
-
-}
-
-YNetPropertySyncer::YNetPropertySyncer(): property_syncer_index(0), target(), property(), net_id(0), current_val(), authority(0), sync_always(false) {
-}
-
-uint32_t YNetPropertySyncer::get_property_syncer_id_from_property_stringnames(const Vector<StringName> &p_property) {
-    String combine_p_property;
-    for (const auto & p : p_property) {
-        combine_p_property += p;
-    }
-    return YNet::string_to_hash_id(combine_p_property);
-}
-
-void YNetPropertySyncer::set_current_val(const Variant &new_value) {
-    current_val = new_value;
-    Node *actual_node = Object::cast_to<Node>(ObjectDB::get_instance(target));
-    if (actual_node != nullptr) {
-        actual_node->set_indexed(property, new_value);
-    }
-}
-
-bool YNetPropertySyncer::check_for_changed_value() {
-    if (const Node *actual_node = Object::cast_to<Node>(ObjectDB::get_instance(target)); actual_node != nullptr) {
-        Variant current_property_val = actual_node->get_indexed(property);
-        if(!current_val.hash_compare(current_property_val)) {
-            current_val = current_property_val;
-            return true;
-        }
-    } else {
-        print_line(vformat("Check for changed value on netpropertysyncer missing node netid %d property index %d",net_id,property_syncer_index));
-    }
-    return false;
-}
-
-YNetPropertySyncer::YNetPropertySyncer(int p_net_id, Object *p_target, const Vector<StringName> &p_property, const Variant &p_val, int p_authority, bool p_sync_always) {
-    net_id = p_net_id;
-    if (p_target != nullptr) {
-        target = p_target->get_instance_id();
-    }
-    property = p_property;
-    authority = p_authority;
-    auto ynet_singleton = YNet::get_singleton();
-
-    if (ynet_singleton == nullptr) return;
-
-    // If the outer_key doesn't exist in the outer HashMap, it would default construct an inner Vector
-    Vector<Ref<YNetPropertySyncer>>& inner_map = ynet_singleton->networked_property_syncers[net_id];
-    property_syncer_index = inner_map.size();
-
-    inner_map.push_back(this);
-
-    // print_line("Added property syncer, new size is ",ynet_singleton->networked_property_syncers[net_id].size());
-
-    current_val = p_val;
-
-    if (ynet_singleton->queued_received_property_syncers.has(net_id) && ynet_singleton->queued_received_property_syncers[net_id].has(property_syncer_index)) {
-            current_val = ynet_singleton->queued_received_property_syncers[net_id][property_syncer_index];
-            p_target->set_indexed(property,current_val);
-            ynet_singleton->queued_received_property_syncers[net_id].erase(property_syncer_index);
-    }
-    sync_always = p_sync_always;
-}
-
-YNetPropertySyncer::~YNetPropertySyncer() {
-    auto ynet_singleton = YNet::get_singleton();
-    if (ynet_singleton == nullptr) return;
-    if (ynet_singleton->networked_property_syncers.has(net_id)) {
-        ynet_singleton->networked_property_syncers[net_id].erase(this);
-        if (ynet_singleton->networked_property_syncers[net_id].size() == 0) {
-            ynet_singleton->networked_property_syncers.erase(net_id);
-        }
-    }
-}
 
 void YNet::_bind_methods() {
     BIND_ENUM_CONSTANT(open);
@@ -209,7 +134,9 @@ void YNet::_bind_methods() {
     ClassDB::bind_method(D_METHOD("clear_all_spawned_network_nodes"), &YNet::clear_all_spawned_network_nodes);
     ClassDB::bind_method(D_METHOD("register_sync_property","networked_node","property_path", "authority", "always_sync"), &YNet::register_sync_property, DEFVAL(1), DEFVAL(false));
     ClassDB::bind_method(D_METHOD("spawn","spawnable_scene","spawned_name","parent_path","global_pos","authority"), &YNet::spawn,DEFVAL(1));
-    ClassDB::bind_method(D_METHOD("spawn_with_path","spawnable_scene_path","spawned_name","parent_path","global_pos","authority"), &YNet::spawn,DEFVAL(1));
+    ClassDB::bind_method(D_METHOD("spawn_with_path","spawnable_scene_path","spawned_name","parent_path","global_pos","authority"), &YNet::spawn_with_path,DEFVAL(1));
+
+    ClassDB::bind_method(D_METHOD("was_last_rpc_sender_host"), &YNet::was_last_rpc_sender_host);
 
     //spawn(Ref<PackedScene> p_spawnable_scene, Variant p_spawn_pos, String p_spawn_name, NodePath p_desired_parent)
 
@@ -243,13 +170,13 @@ void YNet::_bind_methods() {
         ClassDB::bind_vararg_method(METHOD_FLAGS_DEFAULT, "send_yrpc", &YNet::_send_yrpc, mi);
     }
 
-
     {
         MethodInfo mi;
-        mi.name = "send_and_receive_yrpc";
+        mi.name = "send_yrpc_to";
+        mi.arguments.push_back(PropertyInfo(Variant::INT, "target_peer"));
         mi.arguments.push_back(PropertyInfo(Variant::CALLABLE, "method"));
 
-        ClassDB::bind_vararg_method(METHOD_FLAGS_DEFAULT, "send_and_receive_yrpc", &YNet::_send_and_receive_yrpc, mi);
+        ClassDB::bind_vararg_method(METHOD_FLAGS_DEFAULT, "send_yrpc_to", &YNet::_send_yrpc_to, mi);
     }
 
     {
@@ -294,7 +221,8 @@ Ref<YNetPropertySyncer> YNet::register_sync_property(Node *p_target, const NodeP
     //
     // print_line("%s before, then reconstructed %s",prop_value,prop_value_reconstructed);
 
-    Ref<YNetPropertySyncer> tweener = memnew(YNetPropertySyncer(p_net_id, p_target, property_subnames, prop_value, authority, p_always_sync));
+    Ref<YNetPropertySyncer> tweener;
+    tweener.instantiate(p_net_id, p_target, property_subnames, prop_value, authority, p_always_sync);
     return tweener;
 }
 
@@ -331,15 +259,37 @@ Variant YNet::_receive_yrpc(const Variant **p_args, int p_argcount, Callable::Ca
                     actual_node = actual_node->get_node(yrpc_info[2]);
                 }
                 if (actual_node != nullptr) {
+                    // Get RPC config for this method
+                    YNetRPCConfig rpc_config = _get_rpc_config(actual_node, method);
+                    
+                    // Check if we should receive this RPC
+                    bool can_receive = false;
+                    switch (rpc_config.rpc_mode) {
+                        case MultiplayerAPI::RPC_MODE_ANY_PEER:
+                            can_receive = true;
+                            break;
+                        case MultiplayerAPI::RPC_MODE_AUTHORITY:
+                            can_receive = get_multiplayer()->get_remote_sender_id() == actual_node->get_multiplayer_authority();
+                            break;
+                        case MultiplayerAPI::RPC_MODE_DISABLED:
+                        default:
+                            can_receive = false;
+                            break;
+                    }
+
+                    if (!can_receive) {
+                        if (debugging >= DebuggingLevel::MINIMAL) {
+                            print_line(vformat("[YNet] Blocked unauthorized RPC call to %s from peer %d", method, get_multiplayer()->get_remote_sender_id()));
+                        }
+                        return ERR_UNAUTHORIZED;
+                    }
+
                     if (actual_node->has_method(method)) {
-                        actual_node->callp(method,&p_args[1], p_argcount - 1, r_error);
+                        actual_node->callp(method, &p_args[1], p_argcount - 1, r_error);
                     }
                 }
-                //print_line(vformat("Received yrpc id %d method %s",objid,method));
             }
         }
-
-
     }
 
     return 0;
@@ -386,58 +336,6 @@ Variant YNet::_receive_yrpc_also_local(const Variant **p_args, int p_argcount, C
     return 0;
 }
 
-Error YNet::_send_and_receive_yrpc(const Variant **p_args, int p_argcount, Callable::CallError &r_error) {
-    if (p_argcount < 1) {
-        r_error.error = Callable::CallError::CALL_ERROR_TOO_FEW_ARGUMENTS;
-        r_error.expected = 1;
-        return ERR_INVALID_PARAMETER;
-    }
-
-    Variant::Type type = p_args[0]->get_type();
-    if (type != Variant::CALLABLE) {
-        r_error.error = Callable::CallError::CALL_ERROR_INVALID_ARGUMENT;
-        r_error.argument = 0;
-        r_error.expected = Variant::CALLABLE;
-        return ERR_INVALID_PARAMETER;
-    }
-
-    Callable p_callable = p_args[0]->operator Callable();
-    // p_args[0] = new Variant(p_callable.get_method());
-    ERR_FAIL_COND_V(!is_inside_tree(), ERR_UNCONFIGURED);
-
-    Node* callable_object = Object::cast_to<Node>(p_callable.get_object());
-    ERR_FAIL_COND_V(callable_object == nullptr, ERR_DOES_NOT_EXIST);
-
-    int net_id = -1;
-    Node *current = callable_object;
-    while (current != nullptr) {
-        if (current->has_meta("net_id")) {
-            net_id = current->get_meta("net_id",-1);
-            break;
-        }
-        current = current->get_parent();
-    }
-
-    ERR_FAIL_COND_V(callable_object == nullptr || net_id == -1, ERR_UNCONFIGURED);
-
-    Array sending_rpc_array;
-    sending_rpc_array.push_back(net_id);
-    if (current == callable_object) {
-        sending_rpc_array.push_back(false);
-    } else {
-        sending_rpc_array.push_back(true);
-        sending_rpc_array.push_back(current->get_path_to(callable_object));
-    }
-    sending_rpc_array.push_back(p_callable.get_method());
-    p_args[0] = new Variant(sending_rpc_array);
-
-    if (scene_multiplayer.is_null()) {
-        return ERR_UNCONFIGURED;
-    }
-
-    return scene_multiplayer->rpcp(this, 0, receive_yrpc_also_local_stringname, p_args, p_argcount);
-}
-
 Error YNet::_send_yrpc(const Variant **p_args, int p_argcount, Callable::CallError &r_error) {
     if (p_argcount < 1) {
         r_error.error = Callable::CallError::CALL_ERROR_TOO_FEW_ARGUMENTS;
@@ -454,11 +352,33 @@ Error YNet::_send_yrpc(const Variant **p_args, int p_argcount, Callable::CallErr
     }
 
     Callable p_callable = p_args[0]->operator Callable();
-    // p_args[0] = new Variant(p_callable.get_method());
     ERR_FAIL_COND_V(!is_inside_tree(), ERR_UNCONFIGURED);
 
     Node* callable_object = Object::cast_to<Node>(p_callable.get_object());
     ERR_FAIL_COND_V(callable_object == nullptr, ERR_DOES_NOT_EXIST);
+
+    // Get RPC config for this method
+    YNet::YNetRPCConfig rpc_config = _get_rpc_config(callable_object, p_callable.get_method());
+    
+    // Check if we can send this RPC
+    bool can_send = false;
+    switch (rpc_config.rpc_mode) {
+        case MultiplayerAPI::RPC_MODE_ANY_PEER:
+            can_send = true;
+            break;
+        case MultiplayerAPI::RPC_MODE_AUTHORITY:
+            can_send = get_multiplayer()->get_unique_id() == callable_object->get_multiplayer_authority();
+            break;
+        case MultiplayerAPI::RPC_MODE_DISABLED:
+        default:
+            can_send = false;
+            break;
+    }
+
+    if (!can_send) {
+        print_error(vformat("Invalid call for function %s. Doesn't have authority.", p_callable.get_method()));
+        return ERR_UNAUTHORIZED;
+    }
 
     int net_id = -1;
     Node *current = callable_object;
@@ -487,7 +407,99 @@ Error YNet::_send_yrpc(const Variant **p_args, int p_argcount, Callable::CallErr
         return ERR_UNCONFIGURED;
     }
 
-    return scene_multiplayer->rpcp(this, 0, receive_yrpc_stringname, p_args, p_argcount);
+    return scene_multiplayer->rpcp(this, 0, rpc_config.call_local ? rpc_config.transfer_mode == MultiplayerPeer::TRANSFER_MODE_RELIABLE ? receive_yrpc_reliable_also_local_stringname : receive_yrpc_unreliable_also_local_stringname : rpc_config.transfer_mode == MultiplayerPeer::TRANSFER_MODE_RELIABLE ? receive_yrpc_reliable_stringname : receive_yrpc_stringname, p_args, p_argcount);
+}
+
+Error YNet::_send_yrpc_to(const Variant **p_args, int p_argcount, Callable::CallError &r_error) {
+    if (p_argcount < 2) {
+        r_error.error = Callable::CallError::CALL_ERROR_TOO_FEW_ARGUMENTS;
+        r_error.expected = 2;
+        return ERR_INVALID_PARAMETER;
+    }
+
+    Variant::Type type = p_args[0]->get_type();
+    if (type != Variant::INT) {
+        r_error.error = Callable::CallError::CALL_ERROR_INVALID_ARGUMENT;
+        r_error.argument = 0;
+        r_error.expected = Variant::INT;
+        return ERR_INVALID_PARAMETER;
+    }
+
+    type = p_args[1]->get_type();
+    if (type != Variant::CALLABLE) {
+        r_error.error = Callable::CallError::CALL_ERROR_INVALID_ARGUMENT;
+        r_error.argument = 1;
+        r_error.expected = Variant::CALLABLE;
+        return ERR_INVALID_PARAMETER;
+    }
+
+    int target_peer = p_args[0]->operator int();
+    Callable p_callable = p_args[1]->operator Callable();
+    ERR_FAIL_COND_V(!is_inside_tree(), ERR_UNCONFIGURED);
+
+    Node* callable_object = Object::cast_to<Node>(p_callable.get_object());
+    ERR_FAIL_COND_V(callable_object == nullptr, ERR_DOES_NOT_EXIST);
+
+    // Get RPC config for this method
+    YNetRPCConfig rpc_config = _get_rpc_config(callable_object, p_callable.get_method());
+    
+    // Check if we can send this RPC
+    bool can_send = false;
+    switch (rpc_config.rpc_mode) {
+        case MultiplayerAPI::RPC_MODE_ANY_PEER:
+            can_send = true;
+            break;
+        case MultiplayerAPI::RPC_MODE_AUTHORITY:
+            can_send = get_multiplayer()->get_unique_id() == callable_object->get_multiplayer_authority();
+            break;
+        case MultiplayerAPI::RPC_MODE_DISABLED:
+        default:
+            can_send = false;
+            break;
+    }
+
+    if (!can_send) {
+        print_error(vformat("Invalid call for function %s. Doesn't have authority.", p_callable.get_method()));
+        return ERR_INVALID_PARAMETER;
+    }
+
+    int net_id = -1;
+    Node *current = callable_object;
+    while (current != nullptr) {
+        if (current->has_meta("net_id")) {
+            net_id = current->get_meta("net_id",-1);
+            break;
+        }
+        current = current->get_parent();
+    }
+
+    ERR_FAIL_COND_V(callable_object == nullptr || net_id == -1, ERR_UNCONFIGURED);
+
+    Array sending_rpc_array;
+    sending_rpc_array.push_back(net_id);
+    if (current == callable_object) {
+        sending_rpc_array.push_back(false);
+    } else {
+        sending_rpc_array.push_back(true);
+        sending_rpc_array.push_back(current->get_path_to(callable_object));
+    }
+    sending_rpc_array.push_back(p_callable.get_method());
+    p_args[1] = new Variant(sending_rpc_array);
+
+    if (scene_multiplayer.is_null()) {
+        return ERR_UNCONFIGURED;
+    }
+
+    // If target peer is the same as the sender, call the method locally
+    if (target_peer == get_multiplayer()->get_unique_id()) {
+        if (callable_object->has_method(p_callable.get_method())) {
+            callable_object->callp(p_callable.get_method(), &p_args[2], p_argcount - 2, r_error);
+            return OK;
+        }
+        return ERR_METHOD_NOT_FOUND;
+    }
+
+    return scene_multiplayer->rpcp(this, target_peer, receive_yrpc_stringname, &p_args[1], p_argcount - 1);
 }
 
 void YNet::cleanup_node() {
@@ -609,6 +621,10 @@ void YNet::unpack_spawned_list_variants(const Array& received_spawned_list) {
 
     if (debugging >= DebuggingLevel::MINIMAL)
         print_line(vformat("[YNet] Received spawn list. [%d] Network Spawns [%d] Queued Network Spawns [%d obj %d prop] Queued Sync Properties for objects",networked_spawned_objects.size(), queued_networked_spawned_objects.size(), queued_received_property_syncers.size(), received_property_values_amount));
+}
+
+bool YNet::was_last_rpc_sender_host() const {
+    return get_multiplayer()->get_remote_sender_id() == 1;
 }
 
 Variant YNet::convert_nsoi_to_variant(const NetworkSpawnedObjectInfo &p_nsoi) {
@@ -749,6 +765,7 @@ Node *YNet::spawn_with_path(const String &p_spawnable_scene_path, const String &
 }
 Node *YNet::spawn(const Ref<PackedScene> &p_spawnable_scene, const String &p_spawn_name, const NodePath &p_desired_parent, const Variant &p_spawn_pos, int authority) {
     ERR_FAIL_COND_V_MSG(!get_multiplayer()->is_server(), nullptr, "ERROR: Attempted to spawn a networked node from a client");
+    ERR_FAIL_COND_V_MSG(p_spawnable_scene.is_null() || !p_spawnable_scene.is_valid(), nullptr, "ERROR: Attempted to spawn a invalid or null packed scene");
     return internal_spawn(get_new_network_id(),p_spawnable_scene, p_spawn_name, p_desired_parent, p_spawn_pos, authority);
 }
 
@@ -1094,6 +1111,10 @@ void YNet::_notification(int p_what) {
             scene_multiplayer->connect(SNAME("connected_to_server"),callable_mp(this,&YNet::on_connected_to_server));
             this->rpc_config(receive_yrpc_stringname,create_rpc_dictionary_config(MultiplayerAPI::RPC_MODE_ANY_PEER, MultiplayerPeer::TRANSFER_MODE_UNRELIABLE_ORDERED, false, 0));
             this->rpc_config(receive_yrpc_also_local_stringname,create_rpc_dictionary_config(MultiplayerAPI::RPC_MODE_ANY_PEER, MultiplayerPeer::TRANSFER_MODE_UNRELIABLE_ORDERED, true, 0));
+            this->rpc_config(receive_yrpc_reliable_stringname,create_rpc_dictionary_config(MultiplayerAPI::RPC_MODE_ANY_PEER, MultiplayerPeer::TRANSFER_MODE_RELIABLE, false, 0));
+            this->rpc_config(receive_yrpc_unreliable_stringname,create_rpc_dictionary_config(MultiplayerAPI::RPC_MODE_ANY_PEER, MultiplayerPeer::TRANSFER_MODE_UNRELIABLE, false, 0));
+            this->rpc_config(receive_yrpc_unreliable_also_local_stringname,create_rpc_dictionary_config(MultiplayerAPI::RPC_MODE_ANY_PEER, MultiplayerPeer::TRANSFER_MODE_UNRELIABLE, true, 0));
+            this->rpc_config(receive_yrpc_reliable_also_local_stringname,create_rpc_dictionary_config(MultiplayerAPI::RPC_MODE_ANY_PEER, MultiplayerPeer::TRANSFER_MODE_RELIABLE, true, 0));
             this->rpc_config(rpc_spawn_stringname,create_rpc_dictionary_config(MultiplayerAPI::RPC_MODE_AUTHORITY, MultiplayerPeer::TRANSFER_MODE_RELIABLE, false, 0));
             this->rpc_config(rpc_despawn_stringname,create_rpc_dictionary_config(MultiplayerAPI::RPC_MODE_AUTHORITY, MultiplayerPeer::TRANSFER_MODE_RELIABLE, false, 0));
             this->rpc_config(rpc_request_spawned_nodes_stringname,create_rpc_dictionary_config(MultiplayerAPI::RPC_MODE_ANY_PEER, MultiplayerPeer::TRANSFER_MODE_RELIABLE, false, 0));
@@ -1114,6 +1135,11 @@ void YNet::spawned_network_node_exited_tree(int p_nid) {
         networked_property_syncers.erase(p_nid);
     }
     if (yrpc_to_node_hash_map.has(p_nid)) {
+        // Clear RPC config cache for this node
+        ObjectID node_id = yrpc_to_node_hash_map[p_nid];
+        if (node_id.is_valid()) {
+            rpc_config_cache.erase(node_id);
+        }
         yrpc_to_node_hash_map.erase(p_nid);
     }
     if (networked_spawned_objects.has(p_nid)) {
@@ -1180,7 +1206,7 @@ bool YNet::process_packets() {
     return true;
 }
 
-bool YNet::engineio_decode_packet(const uint8_t* packet, int len){
+bool YNet::engineio_decode_packet(const uint8_t *packet, int len) {
     String packet_payload;
     packet_payload.parse_utf8((const char *)packet, len);
     auto packetType = packet_payload.substr(0,1).to_int();
@@ -1755,7 +1781,7 @@ void YNet::on_received_pkt(const String &received_from, const String &pkt_conten
 	}
 	buf.resize(arr_len);
 
-    Packet packet;
+    YNetTypes::Packet packet;
     packet.data = (uint8_t *)memalloc(arr_len);
     memcpy(packet.data, buf.ptrw(), arr_len);
     packet.size = arr_len;
@@ -1815,6 +1841,10 @@ YNet::YNet() {
     pause_receive_spawns = false;
     receive_yrpc_stringname = "receive_yrpc";
     receive_yrpc_also_local_stringname = "receive_yrpc_call_local";
+    receive_yrpc_reliable_stringname = "receive_yrpc_reliable";
+    receive_yrpc_reliable_also_local_stringname = "receive_yrpc_reliable_call_local";
+    receive_yrpc_unreliable_stringname = "receive_yrpc_unreliable";
+    receive_yrpc_unreliable_also_local_stringname = "receive_yrpc_unreliable_call_local";
     rpc_spawn_stringname = "rpc_spawn";
     rpc_despawn_stringname = "rpc_despawn";
     rpc_request_spawned_nodes_stringname = "rpc_request_spawned_nodes";
@@ -1830,7 +1860,7 @@ YNet::YNet() {
 }
 
 void YNet::clear_unhandled_packets() {
-    for (Packet &E : unhandled_packets) {
+    for (YNetTypes::Packet &E : unhandled_packets) {
         memfree(E.data);
         E.data = nullptr;
     }
@@ -1860,4 +1890,73 @@ PropertyHint p_hint, const String& p_hint_string, int p_usage,bool restart_if_ch
     ProjectSettings::get_singleton()->set_custom_property_info(PropertyInfo(p_type, p_name, p_hint, p_hint_string,p_usage));
     ProjectSettings::get_singleton()->set_initial_value(p_name, p_default_value);
     ProjectSettings::get_singleton()->set_restart_if_changed(p_name, restart_if_changed);
+}
+
+// Add this helper function before _send_yrpc
+struct YNetRPCConfig {
+    MultiplayerAPI::RPCMode rpc_mode;
+    MultiplayerPeer::TransferMode transfer_mode;
+    bool call_local;
+    int channel;
+};
+
+YNet::YNetRPCConfig YNet::_get_rpc_config(Node *p_node, const StringName &p_method) {
+    const ObjectID oid = p_node->get_instance_id();
+    
+    // If we don't have a cache for this node yet, create it
+    if (!rpc_config_cache.has(oid)) {
+        YNetRPCConfigCache cache;
+        
+        // Parse node config
+        Dictionary node_config = p_node->get_rpc_config();
+        _parse_rpc_config(node_config, true, cache);
+        
+        // Parse script config if it exists
+        if (p_node->get_script_instance()) {
+            Dictionary script_config = p_node->get_script_instance()->get_rpc_config();
+            _parse_rpc_config(script_config, false, cache);
+        }
+        
+        rpc_config_cache[oid] = cache;
+    }
+    
+    // Get the config from cache
+    YNetRPCConfigCache &cache = rpc_config_cache[oid];
+    if (cache.ids.has(p_method)) {
+        uint16_t id = cache.ids[p_method];
+        return cache.configs[id];
+    }
+    
+    // Default config if not found
+    YNetRPCConfig config;
+    config.name = p_method;
+    config.rpc_mode = MultiplayerAPI::RPC_MODE_DISABLED;
+    config.transfer_mode = MultiplayerPeer::TRANSFER_MODE_RELIABLE;
+    config.call_local = false;
+    config.channel = 0;
+    return config;
+}
+
+void YNet::_parse_rpc_config(const Dictionary &p_config, bool p_for_node, YNetRPCConfigCache &r_cache) {
+    Array names = p_config.keys();
+    names.sort_custom(callable_mp_static(&StringLikeVariantOrder::compare)); // Ensure ID order
+    for (int i = 0; i < names.size(); i++) {
+        ERR_CONTINUE(!names[i].is_string());
+        String name = names[i].operator String();
+        ERR_CONTINUE(p_config[name].get_type() != Variant::DICTIONARY);
+        ERR_CONTINUE(!p_config[name].operator Dictionary().has("rpc_mode"));
+        Dictionary dict = p_config[name];
+        YNetRPCConfig cfg;
+        cfg.name = name;
+        cfg.rpc_mode = ((MultiplayerAPI::RPCMode)dict.get("rpc_mode", MultiplayerAPI::RPC_MODE_AUTHORITY).operator int());
+        cfg.transfer_mode = ((MultiplayerPeer::TransferMode)dict.get("transfer_mode", MultiplayerPeer::TRANSFER_MODE_RELIABLE).operator int());
+        cfg.call_local = dict.get("call_local", false).operator bool();
+        cfg.channel = dict.get("channel", 0).operator int();
+        uint16_t id = ((uint16_t)i);
+        if (p_for_node) {
+            id |= (1 << 15);
+        }
+        r_cache.configs[id] = cfg;
+        r_cache.ids[name] = id;
+    }
 }

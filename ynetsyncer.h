@@ -5,7 +5,10 @@
 #ifndef YNETSYNCER_H
 #define YNETSYNCER_H
 #include "scene/main/node.h"
+#include "yarnnet.h"
+#include "ynet_multiplayer_peer.h"
 
+class YNet;
 ///
 /// YNetSyncer has a list of other nodes it observes. This is set on edit time
 /// On ready the YNetSyncer takes inventory of all the properties of the nodes in the list
@@ -22,14 +25,30 @@
 ///
 /// I think that's mostly it. Could possibly also route rpcs through here maybe. Add some GDVirtual callbacks.
 ///
-class YNetSyncer : public Node {
-    GDCLASS(YNetSyncer, Node);
 
+class YNetPropertySyncer : public RefCounted {
+    GDCLASS(YNetPropertySyncer, RefCounted);
 
-private:
+protected:
+    static void _bind_methods();
 
 public:
-    YNetSyncer() = default;
+    YNetPropertySyncer();
+
+    uint8_t property_syncer_index;
+    ObjectID target;
+    Vector<StringName> property;
+    int net_id;
+    Variant current_val;
+    int authority;
+    bool sync_always;
+
+    static uint32_t get_property_syncer_id_from_property_stringnames(const Vector<StringName> &p_property);
+    void set_current_val(const Variant &new_value);
+    bool check_for_changed_value();
+
+    YNetPropertySyncer(int p_net_id, Object *p_target, const Vector<StringName> &p_property, const Variant &p_val, int authority, bool p_sync_always);
+    ~YNetPropertySyncer();
 };
 
 #endif //YNETSYNCER_H
