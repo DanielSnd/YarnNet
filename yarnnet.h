@@ -67,9 +67,6 @@ protected:
         int spawn_pos_z;
     };
 
-    Error _send_yrpc(const Variant **p_args, int p_argcount, Callable::CallError &r_error);
-    Error _send_and_receive_yrpc(const Variant **p_args, int p_argcount, Callable::CallError &r_error);
-    Error _send_yrpc_to(const Variant **p_args, int p_argcount, Callable::CallError &r_error);
     Variant _receive_yrpc(const Variant **p_args, int p_argcount, Callable::CallError &r_error);
     Variant _receive_yrpc_also_local(const Variant **p_args, int p_argcount, Callable::CallError &r_error);
 
@@ -203,6 +200,12 @@ public:
     Error socketio_send_packet_text(SocketIOPacketType packet_type, Variant p_text = {}, String name_space = slash_namespace);
     Error socketio_send(String event_name, Variant data = {} , String name_space = slash_namespace);
 
+    Error _send_yrpc(const Variant **p_args, int p_argcount, Callable::CallError &r_error);
+    Error _send_and_receive_yrpc(const Variant **p_args, int p_argcount, Callable::CallError &r_error);
+    Error _send_yrpc_to(const Variant **p_args, int p_argcount, Callable::CallError &r_error);
+    Error _send_yrpc_direct(Node *p_node, const StringName &p_method, const Variant **p_args, int p_argcount);
+    Error _send_yrpc_to_direct(Node *p_node, int p_target_peer, const StringName &p_method, const Variant **p_args, int p_argcount);
+    
     int next_networked_spawn_id = 1;
 
     Vector<uint8_t> packet_cache;

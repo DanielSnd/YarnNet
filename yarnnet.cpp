@@ -194,6 +194,39 @@ void YNet::_bind_methods() {
 
         ClassDB::bind_vararg_method(METHOD_FLAGS_DEFAULT, "receive_yrpc_call_local", &YNet::_receive_yrpc_also_local, mi);
     }
+
+    {
+        MethodInfo mi;
+        mi.name = "receive_yrpc_reliable";
+        mi.arguments.push_back(PropertyInfo(Variant::ARRAY, "yrpc_info"));
+
+        ClassDB::bind_vararg_method(METHOD_FLAGS_DEFAULT, "receive_yrpc_reliable", &YNet::_receive_yrpc, mi);
+    }
+
+    {
+        MethodInfo mi;
+        mi.name = "receive_yrpc_reliable_call_local";
+        mi.arguments.push_back(PropertyInfo(Variant::ARRAY, "yrpc_info"));
+
+        ClassDB::bind_vararg_method(METHOD_FLAGS_DEFAULT, "receive_yrpc_reliable_call_local", &YNet::_receive_yrpc_also_local, mi);
+    }
+
+
+    {
+        MethodInfo mi;
+        mi.name = "receive_yrpc_unreliable";
+        mi.arguments.push_back(PropertyInfo(Variant::ARRAY, "yrpc_info"));
+
+        ClassDB::bind_vararg_method(METHOD_FLAGS_DEFAULT, "receive_yrpc_unreliable", &YNet::_receive_yrpc, mi);
+    }
+
+    {
+        MethodInfo mi;
+        mi.name = "receive_yrpc_unreliable_call_local";
+        mi.arguments.push_back(PropertyInfo(Variant::ARRAY, "yrpc_info"));
+
+        ClassDB::bind_vararg_method(METHOD_FLAGS_DEFAULT, "receive_yrpc_unreliable_call_local", &YNet::_receive_yrpc_also_local, mi);
+    }
 }
 
 Ref<YNetPropertySyncer> YNet::register_sync_property(Node *p_target, const NodePath &p_property, int authority, bool p_always_sync) {
@@ -334,6 +367,166 @@ Variant YNet::_receive_yrpc_also_local(const Variant **p_args, int p_argcount, C
     }
 
     return 0;
+}
+
+
+Error YNet::_send_yrpc_direct(Node *p_node, const StringName &p_method, const Variant **p_args, int p_argcount) {
+    ERR_FAIL_COND_V(!is_inside_tree(), ERR_UNCONFIGURED);
+    ERR_FAIL_COND_V(p_node == nullptr, ERR_DOES_NOT_EXIST);
+
+    // Get RPC config for this method
+    YNet::YNetRPCConfig rpc_config = _get_rpc_config(p_node, p_method);
+    
+    // Check if we can send this RPC
+    bool can_send = false;
+    switch (rpc_config.rpc_mode) {
+        case MultiplayerAPI::RPC_MODE_ANY_PEER:
+            can_send = true;
+            break;
+        case MultiplayerAPI::RPC_MODE_AUTHORITY:
+            can_send = get_multiplayer()->get_unique_id() == p_node->get_multiplayer_authority();
+            break;
+        case MultiplayerAPI::RPC_MODE_DISABLED:
+        default:
+            can_send = false;
+            break;
+    }
+
+    if (!can_send) {
+        print_error(vformat("Invalid call for function %s. Doesn't have authority.", p_method));
+        return ERR_UNAUTHORIZED;
+    }
+
+    int net_id = -1;
+    Node *current = p_node;
+    while (current != nullptr) {
+        if (current->has_meta("net_id")) {
+            net_id = current->get_meta("net_id",-1);
+            break;
+        }
+        current = current->get_parent();
+    }
+
+    ERR_FAIL_COND_V(net_id == -1, ERR_UNCONFIGURED);
+
+    Array sending_rpc_array;
+    sending_rpc_array.push_back(net_id);
+    if (current == p_node) {
+        sending_rpc_array.push_back(false);
+    } else {
+        sending_rpc_array.push_back(true);
+        sending_rpc_array.push_back(current->get_path_to(p_node));
+    }
+    sending_rpc_array.push_back(p_method);
+
+    // Create new args array with the RPC info as first argument
+    const Variant **new_args = (const Variant **)alloca(sizeof(Variant *) * (p_argcount + 1));
+    new_args[0] = new Variant(sending_rpc_array);
+    for (int i = 0; i < p_argcount; i++) {
+        new_args[i + 1] = p_args[i];
+    }
+
+    if (scene_multiplayer.is_null()) {
+        return ERR_UNCONFIGURED;
+    }
+
+    return scene_multiplayer->rpcp(this, 0, rpc_config.call_local ? 
+        rpc_config.transfer_mode == MultiplayerPeer::TRANSFER_MODE_RELIABLE ? 
+            receive_yrpc_reliable_also_local_stringname : 
+            receive_yrpc_unreliable_also_local_stringname : 
+        rpc_config.transfer_mode == MultiplayerPeer::TRANSFER_MODE_RELIABLE ? 
+            receive_yrpc_reliable_stringname : 
+            receive_yrpc_stringname, 
+        new_args, p_argcount + 1);
+}
+
+Error YNet::_send_yrpc_to_direct(Node *p_node, int p_target_peer, const StringName &p_method, const Variant **p_args, int p_argcount) {
+    ERR_FAIL_COND_V(!is_inside_tree(), ERR_UNCONFIGURED);
+    ERR_FAIL_COND_V(p_node == nullptr, ERR_DOES_NOT_EXIST);
+
+    // Get RPC config for this method
+    YNet::YNetRPCConfig rpc_config = _get_rpc_config(p_node, p_method);
+    
+    // Check if we can send this RPC
+    bool can_send = false;
+    switch (rpc_config.rpc_mode) {
+        case MultiplayerAPI::RPC_MODE_ANY_PEER:
+            can_send = true;
+            break;
+        case MultiplayerAPI::RPC_MODE_AUTHORITY:
+            can_send = get_multiplayer()->get_unique_id() == p_node->get_multiplayer_authority();
+            break;
+        case MultiplayerAPI::RPC_MODE_DISABLED:
+        default:
+            can_send = false;
+            break;
+    }
+
+    if (!can_send) {
+        print_error(vformat("Invalid call for function %s. Doesn't have authority.", p_method));
+        return ERR_UNAUTHORIZED;
+    }
+
+    int net_id = -1;
+    Node *current = p_node;
+    while (current != nullptr) {
+        if (current->has_meta("net_id")) {
+            net_id = current->get_meta("net_id",-1);
+            break;
+        }
+        current = current->get_parent();
+    }
+
+    ERR_FAIL_COND_V(net_id == -1, ERR_UNCONFIGURED);
+
+    Array sending_rpc_array;
+    sending_rpc_array.push_back(net_id);
+    if (current == p_node) {
+        sending_rpc_array.push_back(false);
+    } else {
+        sending_rpc_array.push_back(true);
+        sending_rpc_array.push_back(current->get_path_to(p_node));
+    }
+    sending_rpc_array.push_back(p_method);
+
+    // Create new args array with the RPC info as first argument
+    const Variant **new_args = (const Variant **)alloca(sizeof(Variant *) * (p_argcount + 1));
+    new_args[0] = new Variant(sending_rpc_array);
+    for (int i = 0; i < p_argcount; i++) {
+        new_args[i + 1] = p_args[i];
+    }
+
+    if (scene_multiplayer.is_null()) {
+        return ERR_UNCONFIGURED;
+    }
+
+    // If target peer is the same as the sender, call the method locally
+    if (p_target_peer == get_multiplayer()->get_unique_id()) {
+        if (p_node->has_method(p_method)) {
+            Callable::CallError r_error;
+            p_node->callp(p_method, p_args, p_argcount, r_error);
+            if (r_error.error == Callable::CallError::CALL_ERROR_INVALID_ARGUMENT) {
+                return ERR_INVALID_PARAMETER;
+            } else if (r_error.error == Callable::CallError::CALL_ERROR_TOO_FEW_ARGUMENTS) {
+                return ERR_INVALID_DATA;
+            } else if (r_error.error == Callable::CallError::CALL_ERROR_TOO_MANY_ARGUMENTS) {
+                return ERR_INVALID_DATA;
+            } else if (r_error.error == Callable::CallError::CALL_ERROR_INVALID_METHOD) {
+                return ERR_METHOD_NOT_FOUND;
+            }
+            return OK;
+        }
+        return ERR_METHOD_NOT_FOUND;
+    }
+
+    return scene_multiplayer->rpcp(this, p_target_peer, rpc_config.call_local ? 
+        rpc_config.transfer_mode == MultiplayerPeer::TRANSFER_MODE_RELIABLE ? 
+            receive_yrpc_reliable_also_local_stringname : 
+            receive_yrpc_unreliable_also_local_stringname : 
+        rpc_config.transfer_mode == MultiplayerPeer::TRANSFER_MODE_RELIABLE ? 
+            receive_yrpc_reliable_stringname : 
+            receive_yrpc_stringname, 
+        new_args, p_argcount + 1);
 }
 
 Error YNet::_send_yrpc(const Variant **p_args, int p_argcount, Callable::CallError &r_error) {
@@ -1816,8 +2009,10 @@ void YNet::on_host_migrated(const String &p_new_host) {
 #endif
 
 void YNet::register_for_yrpcs(Node *p_registering_node, int registering_id) {
-    yrpc_to_node_hash_map[registering_id] = p_registering_node->get_instance_id();
-    p_registering_node->connect(SceneStringName(tree_exiting), callable_mp(this,&YNet::remove_from_yrpc_receiving_map).bind(registering_id), CONNECT_ONE_SHOT);
+    if (!yrpc_to_node_hash_map.has(registering_id)) {
+        yrpc_to_node_hash_map[registering_id] = p_registering_node->get_instance_id();
+        p_registering_node->connect(SceneStringName(tree_exiting), callable_mp(this,&YNet::remove_from_yrpc_receiving_map).bind(registering_id), CONNECT_ONE_SHOT);
+    }
 }
 
 uint32_t YNet::string_to_hash_id(const String &p_string) {
