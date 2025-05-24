@@ -194,6 +194,7 @@ void YnetMultiplayerPeer::on_player_left(const String &p_player) {
     for (auto remove_int: remove_ints) {
         if(remove_int != 1) {
             emit_signal(SNAME("peer_disconnected"), remove_int);
+            YNet::get_singleton()->
         }
         if (peers_map.has(remove_int)) {
             peers_map.erase(remove_int);

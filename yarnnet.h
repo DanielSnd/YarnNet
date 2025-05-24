@@ -68,7 +68,7 @@ protected:
     Ref<YNetPropertySyncer> register_sync_property(Node *p_target, const NodePath &p_property, int authority, bool p_always_sync);
 
     struct NetworkSpawnedObjectInfo {
-        int network_instance_id;
+        uint32_t network_instance_id;
         uint32_t spawnable_scene_id;
         String spawned_name;
         ObjectID SpawnedNodeId;
@@ -77,6 +77,7 @@ protected:
         int spawn_pos_x;
         int spawn_pos_y;
         int spawn_pos_z;
+        bool cleanup_with_owner = false;
     };
 
     Variant _receive_yrpc(const Variant **p_args, int p_argcount, Callable::CallError &r_error);
@@ -99,7 +100,7 @@ protected:
 
     void _notification(int p_what);
 
-    void spawned_network_node_exited_tree(int p_nid);
+    void spawned_network_node_exited_tree(uint32_t p_nid);
 
     void clear_all_spawned_network_nodes();
 
@@ -132,6 +133,8 @@ protected:
 
     void cleanup_node();
 
+    void attempt_despawn_nodes_from_peer_that_left(const uint32_t &p_peer_id);
+
     int get_queued_spawn_count() const {
         return static_cast<int>(queued_networked_spawned_objects.size());
     }
@@ -142,12 +145,12 @@ protected:
 
     bool already_setup_in_tree = false;
     inline static YNet* singleton = nullptr;
-    HashMap<int,ObjectID> yrpc_to_node_hash_map;
+    HashMap<uint32_t,ObjectID> yrpc_to_node_hash_map;
 
     void clear_unhandled_packets();
 
 public:
-    void remove_from_yrpc_receiving_map(int p_yrpc_id);
+    void remove_from_yrpc_receiving_map(uint32_t p_yrpc_id);
 
     enum EngineIOPacketType {
         open = 0,
@@ -227,12 +230,12 @@ public:
         NETWORK_NODE_ID_COMPRESSION_16,
         NETWORK_NODE_ID_COMPRESSION_32,
     };
-    HashMap<int,NetworkSpawnedObjectInfo> queued_networked_spawned_objects;
-    HashMap<int,NetworkSpawnedObjectInfo> networked_spawned_objects;
-    HashMap<int,int> networked_id_to_authority;
-    HashMap<int,Vector<Ref<YNetPropertySyncer>>> networked_property_syncers;
-    HashMap<int,HashMap<uint8_t,Variant>> queued_received_property_syncers;
-    HashMap<int,HashMap<uint8_t,Variant>> queued_to_send_property_syncers;
+    HashMap<uint32_t,NetworkSpawnedObjectInfo> queued_networked_spawned_objects;
+    HashMap<uint32_t,NetworkSpawnedObjectInfo> networked_spawned_objects;
+    HashMap<uint32_t,uint32_t> networked_id_to_authority;
+    HashMap<uint32_t,Vector<Ref<YNetPropertySyncer>>> networked_property_syncers;
+    HashMap<uint32_t,HashMap<uint8_t,Variant>> queued_received_property_syncers;
+    HashMap<uint32_t,HashMap<uint8_t,Variant>> queued_to_send_property_syncers;
 
     uint64_t last_sent_synced_vars;
     uint64_t last_watched_synced_vars;
@@ -278,7 +281,7 @@ public:
     int get_hashed_sid() const {return hashed_sid;}
     void set_hashed_sid(int val) {}
 
-    Node* find_node_with_net_id(int p_net_id);
+    Node* find_node_with_net_id(uint32_t p_net_id);
 
     String room_id = "";
     String get_room_id() const {return room_id;}
@@ -329,8 +332,8 @@ public:
     bool get_is_host() const {return is_host;}
     void set_is_host(bool val) {}
 
-    Node *internal_spawn(int network_id, const Ref<PackedScene> &p_spawnable_scene, const String &p_spawn_name,
-                         const NodePath &p_desired_parent, const Variant &p_spawn_pos, int authority);
+    Node *internal_spawn(uint32_t p_network_id, const Ref<PackedScene> &p_spawnable_scene, const String &p_spawn_name,
+                         const NodePath &p_desired_parent, const Variant &p_spawn_pos, const int authority);
 
     void internal_register_as_networked_node(int p_network_id, Node* node_to_register, const int authority);
 
@@ -339,8 +342,7 @@ public:
     Node *spawn_with_path(const String &p_spawnable_scene_path, const String &p_spawn_name,
                           const NodePath &p_desired_parent, const Variant &p_spawn_pos, int authority);
 
-    void rpc_spawn(int network_id, const uint32_t &p_spawnable_path_id, const String &p_spawn_name, const String &p_desired_parent,
-                   const Variant &p_spawn_pos, int authority);
+    void rpc_spawn(const uint32_t p_network_id, const uint32_t &p_spawnable_path_id, const String &p_spawn_name, const String &p_desired_parent, const Variant &p_spawn_pos, const int authority);
 
     void internal_spawn_with_queued_struct(const NetworkSpawnedObjectInfo &p_nsoi);
 
@@ -356,13 +358,13 @@ public:
 
     Node *spawn(const Ref<PackedScene> &p_spawnable_scene, const String &p_spawn_name, const NodePath &p_desired_parent, const Variant &p_spawn_pos, int authority);
 
-    void rpc_request_spawned_nodes(int p_id_requesting);
+    void rpc_request_spawned_nodes(uint32_t id_requesting);
 
     void rpc_respond_with_spawned_nodes(const Array &spawned_nodes_info);
 
-    void rpc_despawn(int p_network_id);
+    void rpc_despawn(uint32_t p_network_id);
 
-    void despawn(int network_id);
+    void despawn(uint32_t p_network_id);
 
     void despawn_node(Node *node_to_despawn);
 
@@ -488,7 +490,12 @@ public:
     void on_host_migrated(const String &p_new_host);
 #endif
 
-    void register_for_yrpcs(Node* p_registering_node, int registering_id);
+    void register_for_yrpcs(Node *p_registering_node, uint32_t registering_id);
+
+    void cleanup_network_state();
+
+    void set_node_cleanup_with_owner(Node* p_node, bool p_cleanup);
+    bool get_node_cleanup_with_owner(Node* p_node) const;
 
     static void set_debug_run_multiple_instances(bool val);
     static bool get_debug_run_multiple_instances();

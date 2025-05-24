@@ -127,6 +127,7 @@ void YNet::_bind_methods() {
 
     ClassDB::bind_method(D_METHOD("was_last_rpc_sender_host"), &YNet::was_last_rpc_sender_host);
 
+    ClassDB::bind_method(D_METHOD("cleanup_network_state"), &YNet::cleanup_network_state);
     //spawn(Ref<PackedScene> p_spawnable_scene, Variant p_spawn_pos, String p_spawn_name, NodePath p_desired_parent)
 
     ClassDB::bind_method(D_METHOD("rpc_spawn","network_id","packedscene_path_id","spawn_name","desired_parent_absolute_path","spawn_pos","authority"), &YNet::rpc_spawn,DEFVAL(1));
@@ -263,7 +264,7 @@ Ref<YNetPropertySyncer> YNet::register_sync_property(Node *p_target, const NodeP
     return propsyncer;
 }
 
-void YNet::remove_from_yrpc_receiving_map(int p_yrpc_id) {
+void YNet::remove_from_yrpc_receiving_map(uint32_t p_yrpc_id) {
     yrpc_to_node_hash_map.erase(p_yrpc_id);
 }
 
@@ -283,7 +284,7 @@ Variant YNet::_receive_yrpc(const Variant **p_args, int p_argcount, Callable::Ca
     }
 
     Array yrpc_info = p_args[0]->operator Array();
-    int netid = yrpc_info[0];
+    uint32_t netid = yrpc_info[0];
 
     if (yrpc_to_node_hash_map.has(netid)) {
         auto node_found = ObjectDB::get_instance(yrpc_to_node_hash_map[netid]);
@@ -348,7 +349,7 @@ Variant YNet::_receive_yrpc_also_local(const Variant **p_args, int p_argcount, C
     }
 
     Array yrpc_info = p_args[0]->operator Array();
-    int netid = yrpc_info[0];
+    uint32_t netid = yrpc_info[0];
 
     if (yrpc_to_node_hash_map.has(netid)) {
         auto node_found = ObjectDB::get_instance(yrpc_to_node_hash_map[netid]);
@@ -442,6 +443,21 @@ Error YNet::_send_yrpc_direct(Node *p_node, const StringName &p_method, const Va
             receive_yrpc_reliable_stringname : 
             receive_yrpc_stringname, 
         new_args, p_argcount + 1);
+}
+
+void YNet::attempt_despawn_nodes_from_peer_that_left(const uint32_t &p_peer_id) {
+    Vector<uint32_t> nodes_to_despawn;
+    for (const auto& spawned_obj : networked_spawned_objects) {
+        if (spawned_obj.value.cleanup_with_owner) {
+            if (networked_id_to_authority.has(spawned_obj.key) && 
+                networked_id_to_authority[spawned_obj.key] == p_peer_id) {
+                    nodes_to_despawn.push_back(spawned_obj.key);
+            }
+        }
+    }
+    for (const auto& net_id : nodes_to_despawn) {
+        despawn(net_id);
+    }
 }
 
 Error YNet::_send_yrpc_to_direct(Node *p_node, int p_target_peer, const StringName &p_method, const Variant **p_args, int p_argcount) {
@@ -740,8 +756,7 @@ void YNet::setup_node() {
 
 void YNet::engineio_disconnect() {
     if(client.is_valid()) {
-        clear_unhandled_packets();
-        connections_map.clear();
+        cleanup_network_state();
         client->close();
         emit_signal(SNAME("disconnected"),client->get_close_code(),was_timeout ? "Timed out" : client->get_close_reason());
         was_timeout=false;
@@ -755,7 +770,7 @@ void YNet::engineio_disconnect() {
     }
 }
 
-void YNet::rpc_spawn(const int p_network_id, const uint32_t &p_spawnable_path_id, const String &p_spawn_name, const String &p_desired_parent, const Variant &p_spawn_pos, const int authority) {
+void YNet::rpc_spawn(const uint32_t p_network_id, const uint32_t &p_spawnable_path_id, const String &p_spawn_name, const String &p_desired_parent, const Variant &p_spawn_pos, const int authority) {
     ERR_FAIL_COND_MSG(!spawnables_dictionary.has(p_spawnable_path_id), "ERROR: Received a spawn rpc with a scene id that wasn't present as a spawnable scene in YNet");
     Ref<PackedScene> ps = ResourceLoader::load(spawnables_dictionary[p_spawnable_path_id]);
     ERR_FAIL_COND_MSG(ps.is_null() || !ps.is_valid(), "ERROR: Received a spawn rpc with a invalid or null packed scene");
@@ -763,7 +778,7 @@ void YNet::rpc_spawn(const int p_network_id, const uint32_t &p_spawnable_path_id
 }
 
 void YNet::internal_spawn_with_queued_struct(const NetworkSpawnedObjectInfo &p_nsoi) {
-    const int p_nid = p_nsoi.network_instance_id;
+    const uint32_t p_nid = p_nsoi.network_instance_id;
     const Vector3 spawn_pos = Vector3{static_cast<float>(p_nsoi.spawn_pos_x) * 0.01f, static_cast<float>(p_nsoi.spawn_pos_y) * 0.01f, static_cast<float>(p_nsoi.spawn_pos_z) * 0.01f};
     const Ref<PackedScene> ps = ResourceLoader::load(spawnables_dictionary[p_nsoi.spawnable_scene_id]);
     internal_spawn(p_nid,ps,p_nsoi.spawned_name,p_nsoi.desired_parent,spawn_pos,p_nsoi.authority);
@@ -866,7 +881,7 @@ Variant YNet::convert_nsoi_to_variant(const NetworkSpawnedObjectInfo &p_nsoi) {
 
 void YNet::unpack_spawninfo_from_variant(const Array& received_spawn_info) {
     ERR_FAIL_COND_MSG(received_spawn_info.size() < 8, "ERROR: Attempted to unpack a spawninfo variable with wrong number of arguments");
-    int _n_id = received_spawn_info[0];
+    uint32_t _n_id = received_spawn_info[0];
     if (networked_spawned_objects.has(_n_id)) {
         return;
     }
@@ -876,7 +891,7 @@ void YNet::unpack_spawninfo_from_variant(const Array& received_spawn_info) {
     ,received_spawn_info[5], received_spawn_info[6], received_spawn_info[7]};
 }
 
-Node *YNet::internal_spawn(int p_network_id, const Ref<PackedScene> &p_spawnable_scene, const String &p_spawn_name, const NodePath &p_desired_parent, const Variant &p_spawn_pos, const int authority) {
+Node *YNet::internal_spawn(uint32_t p_network_id, const Ref<PackedScene> &p_spawnable_scene, const String &p_spawn_name, const NodePath &p_desired_parent, const Variant &p_spawn_pos, const int authority) {
     ERR_FAIL_COND_V_MSG(p_spawnable_scene.is_null() || !p_spawnable_scene.is_valid(), nullptr, "ERROR: Spawnable scene is not valid");
     uint32_t desired_spawn_path_id = string_to_hash_id(p_spawnable_scene->get_path());
     ERR_FAIL_COND_V_MSG(!spawnables_dictionary.has(desired_spawn_path_id), nullptr, "ERROR: Provided scene wasn't added as a spawnable scene to YNet");
@@ -965,7 +980,7 @@ Node *YNet::spawn(const Ref<PackedScene> &p_spawnable_scene, const String &p_spa
     return internal_spawn(get_new_network_id(),p_spawnable_scene, p_spawn_name, p_desired_parent, p_spawn_pos, authority);
 }
 
-void YNet::rpc_request_spawned_nodes(int id_requesting) {
+void YNet::rpc_request_spawned_nodes(uint32_t id_requesting) {
     Array p_arguments;
     p_arguments.push_back(create_spawned_lists_variant());
     int argcount = p_arguments.size();
@@ -983,7 +998,7 @@ void YNet::rpc_respond_with_spawned_nodes(const Array& spawned_nodes_info) {
     count_to_check_should_spawn = 999;
 }
 
-void YNet::rpc_despawn(int p_network_id) {
+void YNet::rpc_despawn(uint32_t p_network_id) {
     if (yrpc_to_node_hash_map.has(p_network_id))
         yrpc_to_node_hash_map.erase(p_network_id);
     if (networked_property_syncers.has(p_network_id)) {
@@ -1016,7 +1031,7 @@ void YNet::rpc_despawn(int p_network_id) {
     networked_spawned_objects.erase(p_network_id);
 }
 
-void YNet::despawn(int p_network_id) {
+void YNet::despawn(uint32_t p_network_id) {
     ERR_FAIL_COND_MSG(!get_multiplayer()->is_server(), "ERROR: Attempted to despawn a networked node from a client");
     ERR_FAIL_COND_MSG(!queued_networked_spawned_objects.has(p_network_id) && !networked_spawned_objects.has(p_network_id), "ERROR: Attempted to despawn a networked node not present in the dictionary");
     rpc_despawn(p_network_id);
@@ -1312,7 +1327,7 @@ void YNet::_notification(int p_what) {
     }
 }
 
-void YNet::spawned_network_node_exited_tree(int p_nid) {
+void YNet::spawned_network_node_exited_tree(uint32_t p_nid) {
     if (networked_property_syncers.has(p_nid)) {
         networked_property_syncers.erase(p_nid);
     }
@@ -1510,7 +1525,7 @@ Ref<PackedScene> YNet::find_network_spawnable(uint32_t new_spawnable_id) {
     return nullptr;
 }
 
-Node * YNet::find_node_with_net_id(int p_net_id) {
+Node * YNet::find_node_with_net_id(uint32_t p_net_id) {
     if (yrpc_to_node_hash_map.has(p_net_id)) {
         const ObjectID desiredId = yrpc_to_node_hash_map[p_net_id];
         if (!desiredId.is_null() && desiredId.is_valid()) {
@@ -1997,7 +2012,7 @@ void YNet::on_host_migrated(const String &p_new_host) {
 }
 #endif
 
-void YNet::register_for_yrpcs(Node *p_registering_node, int registering_id) {
+void YNet::register_for_yrpcs(Node *p_registering_node, uint32_t registering_id) {
     if (!yrpc_to_node_hash_map.has(registering_id)) {
         yrpc_to_node_hash_map[registering_id] = p_registering_node->get_instance_id();
         Callable remove_callable = callable_mp(this,&YNet::remove_from_yrpc_receiving_map).bind(registering_id);
@@ -2176,4 +2191,64 @@ void YNet::_parse_rpc_config(const Dictionary &p_config, bool p_for_node, YNetRP
         r_cache.configs[id] = cfg;
         r_cache.ids[name] = id;
     }
+}
+
+void YNet::cleanup_network_state() {
+    // Clear all spawned nodes
+    clear_all_spawned_network_nodes();
+    
+    // Clear all property syncers
+    networked_property_syncers.clear();
+    queued_received_property_syncers.clear();
+    queued_to_send_property_syncers.clear();
+    
+    // Clear RPC mappings
+    yrpc_to_node_hash_map.clear();
+    rpc_config_cache.clear();
+    
+    // Clear network ID mappings
+    networked_id_to_authority.clear();
+    
+    // Clear queued spawns
+    queued_networked_spawned_objects.clear();
+    
+    // Reset counters
+    count_to_check_should_spawn = 0;
+    last_sent_synced_vars = 0;
+    last_watched_synced_vars = 0;
+    
+    // Clear unhandled packets
+    clear_unhandled_packets();
+    
+    // Reset room state
+    room_id = "";
+    host_id = "";
+    host_id_hashed = 0;
+    is_host = false;
+    connections_map.clear();
+}
+
+void YNet::set_node_cleanup_with_owner(Node* p_node, bool p_cleanup) {
+    ERR_FAIL_NULL(p_node);
+    if (!p_node->has_meta("_net_id")) {
+        return;
+    }
+    
+    uint32_t net_id = p_node->get_meta("_net_id");
+    if (networked_spawned_objects.has(net_id)) {
+        networked_spawned_objects[net_id].cleanup_with_owner = p_cleanup;
+    }
+}
+
+bool YNet::get_node_cleanup_with_owner(Node* p_node) const {
+    ERR_FAIL_NULL_V(p_node, false);
+    if (!p_node->has_meta("_net_id")) {
+        return false;
+    }
+    
+    uint32_t net_id = p_node->get_meta("_net_id");
+    if (networked_spawned_objects.has(net_id)) {
+        return networked_spawned_objects[net_id].cleanup_with_owner;
+    }
+    return false;
 }
