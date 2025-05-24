@@ -133,8 +133,6 @@ protected:
 
     void cleanup_node();
 
-    void attempt_despawn_nodes_from_peer_that_left(const uint32_t &p_peer_id);
-
     int get_queued_spawn_count() const {
         return static_cast<int>(queued_networked_spawned_objects.size());
     }
@@ -151,6 +149,8 @@ protected:
 
 public:
     void remove_from_yrpc_receiving_map(uint32_t p_yrpc_id);
+
+    void attempt_despawn_nodes_from_peer_that_left(const uint32_t &p_peer_id);
 
     enum EngineIOPacketType {
         open = 0,
