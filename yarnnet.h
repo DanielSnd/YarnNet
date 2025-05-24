@@ -12,6 +12,8 @@
 #include "scene/main/multiplayer_peer.h"
 #include "ynet_types.h"
 #include <cstring>
+#include "core/os/os.h"
+
 
 #include "modules/multiplayer/scene_multiplayer.h"
 #include "scene/resources/packed_scene.h"
@@ -323,16 +325,14 @@ public:
     bool get_pause_receive_spawns() const {return pause_receive_spawns;}
     void set_pause_receive_spawns(bool val) {pause_receive_spawns = val;}
     
-    int last_used_id = 1;
-    int get_last_used_id() const {return last_used_id;}
-    void set_last_used_id(int val) {last_used_id = val;}
-
     bool is_host = false;
     bool get_is_host() const {return is_host;}
     void set_is_host(bool val) {}
 
     Node *internal_spawn(int network_id, const Ref<PackedScene> &p_spawnable_scene, const String &p_spawn_name,
                          const NodePath &p_desired_parent, const Variant &p_spawn_pos, int authority);
+
+    void internal_register_as_networked_node(int p_network_id, Node* node_to_register, const int authority);
 
     void set_authority_after_entered(Node *node_entered_tree, const Variant &p_spawn_pos, int authority);
 
@@ -379,7 +379,7 @@ public:
 
     int host_id_hashed{};
 
-    int get_new_network_id() { last_used_id = last_used_id + 1; return last_used_id-1;}
+    uint32_t get_new_network_id();
 
     State get_current_state() const {
         if(offline_mode) {
@@ -387,6 +387,7 @@ public:
         }
         return status;
     }
+
     void set_current_state(State val) {
         if (status != val) {
             status = val;
@@ -489,8 +490,8 @@ public:
 
     void register_for_yrpcs(Node* p_registering_node, int registering_id);
 
-    void set_debug_run_multiple_instances(bool val);
-    bool get_debug_run_multiple_instances();
+    static void set_debug_run_multiple_instances(bool val);
+    static bool get_debug_run_multiple_instances();
 
     HashMap<String,int> connections_map;
 

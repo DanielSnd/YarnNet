@@ -121,7 +121,7 @@ Node YNet.spawn(spawnable_scene: PackedScene, spawned_name: String, parent_path:
 ```
 It will automatically instantiate the desired node and place it in the hierarchy under the desired parent_path if it is available. If the desired parent path isn't available it will return null but will queue the spawn to happen once the desired parent path becomes available.
 
-Networked Nodes are spawned with a numeric id that can be accessed with get_meta("net_id"). This ID is synchronized over the network and can be used to find the node for RPCs and Synchronization.
+Networked Nodes are spawned with a numeric id that can be accessed with get_meta("_net_id"). This ID is synchronized over the network and can be used to find the node for RPCs and Synchronization.
 
 To despawn a networked scene you can either `queue_free()` them as usual (It handles the despawning logic under the hood) or use the following methods: (Only the host can despawn networked nodes)
 ```gdscript
