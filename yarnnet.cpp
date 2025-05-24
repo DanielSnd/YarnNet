@@ -1,11 +1,5 @@
 #include "yarnnet.h"
 
-#include "core/config/project_settings.h"
-#include "core/crypto/crypto_core.h"
-#include "core/io/marshalls.h"
-#include "core/object/script_language.h"
-#include "scene/2d/node_2d.h"
-
 
 void YNet::_bind_methods() {
     BIND_ENUM_CONSTANT(open);
@@ -2130,6 +2124,35 @@ YNet::YNetRPCConfig YNet::_get_rpc_config(Node *p_node, const StringName &p_meth
     config.call_local = false;
     config.channel = 0;
     return config;
+}
+
+void YNet::set_debug_run_multiple_instances(bool val) {
+    #ifdef TOOLS_ENABLED
+    if (RunInstancesDialog::get_singleton() != nullptr) {
+        TypedArray<Node> checkbox_children = RunInstancesDialog::get_singleton()->find_children("*","CheckBox");
+		for (int i = 0; i < checkbox_children.size(); i++) {
+			Node *cb = cast_to<Node>(checkbox_children[i]);
+            if (cb != nullptr) {
+                cb->set("button_pressed",val);
+            }
+        }
+    }
+    #endif
+}
+
+bool YNet::get_debug_run_multiple_instances() {
+    #ifdef TOOLS_ENABLED
+    if (RunInstancesDialog::get_singleton() != nullptr) {
+        TypedArray<Node> checkbox_children = RunInstancesDialog::get_singleton()->find_children("*","CheckBox");
+		for (int i = 0; i < checkbox_children.size(); i++) {
+			Node *cb = cast_to<Node>(checkbox_children[i]);
+            if (cb != nullptr) {
+                return cb->get("button_pressed").operator bool();
+            }
+        }
+    }
+    #endif
+    return false;
 }
 
 void YNet::_parse_rpc_config(const Dictionary &p_config, bool p_for_node, YNetRPCConfigCache &r_cache) {

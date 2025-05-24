@@ -20,6 +20,16 @@
 #include "scene/scene_string_names.h"
 #include "ynetsyncer.h"
 
+#include "core/config/project_settings.h"
+#include "core/crypto/crypto_core.h"
+#include "core/io/marshalls.h"
+#include "core/object/script_language.h"
+#include "scene/2d/node_2d.h"
+
+#ifdef TOOLS_ENABLED
+#include "editor/run_instances_dialog.h"
+#endif
+
 class YNetPropertySyncer;
 
 class YNet : public Node {
@@ -478,6 +488,9 @@ public:
 #endif
 
     void register_for_yrpcs(Node* p_registering_node, int registering_id);
+
+    void set_debug_run_multiple_instances(bool val);
+    bool get_debug_run_multiple_instances();
 
     HashMap<String,int> connections_map;
 
