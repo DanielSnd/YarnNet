@@ -143,6 +143,8 @@ void YNet::_bind_methods() {
     ClassDB::bind_method(D_METHOD("register_for_yrpc","node","yrpc_id"), &YNet::register_for_yrpcs);
     ClassDB::bind_method(D_METHOD("remove_from_yrpc","yrpc_id"), &YNet::remove_from_yrpc_receiving_map);
 
+    ClassDB::bind_method(D_METHOD("set_node_cleanup_with_owner","node","status"), &YNet::set_node_cleanup_with_owner, DEFVAL(true));
+
     ClassDB::bind_method(D_METHOD("rpc_recv_sync_vars","synced_vars_data"), &YNet::rpc_recv_sync_vars);
     ClassDB::bind_method(D_METHOD("rpc_respond_with_spawned_nodes","spawned_nodes_data"), &YNet::rpc_respond_with_spawned_nodes);
     ClassDB::bind_method(D_METHOD("rpc_request_spawned_nodes","requester_id"), &YNet::rpc_request_spawned_nodes);
