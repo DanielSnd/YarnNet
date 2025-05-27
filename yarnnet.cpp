@@ -1305,6 +1305,7 @@ void YNet::_notification(int p_what) {
             }
         }break;
         case NOTIFICATION_READY: {
+            set_process_mode(PROCESS_MODE_ALWAYS);
             scene_multiplayer = get_multiplayer();
             scene_multiplayer->connect(SNAME("peer_packet"), callable_mp(this, &YNet::on_received_peer_packet));
             scene_multiplayer->connect(SNAME("connected_to_server"),callable_mp(this,&YNet::on_connected_to_server));
