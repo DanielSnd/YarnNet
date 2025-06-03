@@ -41,18 +41,14 @@ void YNet::_bind_methods() {
     ADD_SIGNAL(MethodInfo("host_migration", PropertyInfo(Variant::STRING, "new_host_sid")));
 #endif
 
-    ADD_SIGNAL(MethodInfo("connected", PropertyInfo(Variant::STRING, "name_space"), PropertyInfo(Variant::BOOL, "result")));
-    ADD_SIGNAL(MethodInfo("event", PropertyInfo(Variant::STRING, "event_name"),PropertyInfo(Variant::OBJECT, "payload"),PropertyInfo(Variant::STRING, "name_space")));
+    // ADD_SIGNAL(MethodInfo("connected", PropertyInfo(Variant::STRING, "name_space"), PropertyInfo(Variant::BOOL, "result")));
+    // ADD_SIGNAL(MethodInfo("event", PropertyInfo(Variant::STRING, "event_name"),PropertyInfo(Variant::OBJECT, "payload"),PropertyInfo(Variant::STRING, "name_space")));
 
     ClassDB::bind_method(D_METHOD("setup_node"), &YNet::setup_node);
     ClassDB::bind_method(D_METHOD("ynet_connect", "url"), &YNet::engineio_connect);
     ClassDB::bind_method(D_METHOD("ynet_disconnect"), &YNet::engineio_disconnect);
 
     ClassDB::bind_static_method("YNet",D_METHOD("string_to_hash_id","str"), &YNet::string_to_hash_id);
-
-    ClassDB::bind_method(D_METHOD("socketio_send_event", "event_name","data","name_space"), &YNet::socketio_send,DEFVAL(Variant{}),DEFVAL(""));
-    ClassDB::bind_method(D_METHOD("socketio_connect", "name_space"), &YNet::socketio_connect,DEFVAL(slash_namespace));
-    ClassDB::bind_method(D_METHOD("socketio_disconnect", "name_space"), &YNet::socketio_disconnect,DEFVAL(slash_namespace));
 
     ClassDB::bind_method(D_METHOD("set_debugging", "debugging_level"), &YNet::set_debugging);
     ClassDB::bind_method(D_METHOD("get_debugging"), &YNet::get_debugging);
@@ -1101,8 +1097,6 @@ void YNet::send_sync_vars(uint64_t p_cur_usec) {
 		ofs += 4;
 	}
 
-
-    //This is Godot 4 C++ Code
     //I want to start a byte array for sending these variables for syncing across the network.
     for (const auto& propertysyncers: queued_to_send_property_syncers) {
         MAKE_ROOM(ofs + 4);
@@ -1209,99 +1203,24 @@ void YNet::rpc_recv_sync_vars(Variant p_synced_vars_data) {
 
 }
 
-YNet* YNet::engineio_connect(String _url) {
-    if(!ynet_settings_enabled) {
-        ERR_PRINT("[YNet] Attempting to connect while YNet is disabled on project settings");
-    }
-    if(protocol == "change_me") {
-        WARN_PRINT("[YNet] Make sure to change the protocol string in YNet settings");
-    }
-    if (!_url.ends_with("/"))
-        _url = _url+"/socket.io/";
-    else {
-        _url += "socket.io/";
-    }
-    if (_url.begins_with("https"))
-        _url = "wss"+_url.erase(0,5);
-    else if (_url.begins_with("http"))
-        _url = "ws"+_url.erase(0,4);
-    url = vformat("%s?EIO=4&transport=websocket",_url);
-    if(debugging == ALL)
-        print_line("[YNet] Connecting... url in ",_url," url out ",url," valid websockets client? ",client.is_valid());
-
-    if (!client.is_valid()) {
-        YNet::create_client();
-        if(debugging == ALL)
-            print_line("[YNet] WebSocket created? ",client.is_valid());
-    } else {
-        if (static_cast<State>(client->get_ready_state()) != STATE_CLOSED) {
-            engineio_disconnect();
-            ERR_PRINT("[YNet] Called connect when already connected");
-            emit_signal(SNAME("connected"),"",false);
-            return this;
-        }
-    }
-
-    ERR_FAIL_COND_V(client.is_null(), this);
-
-    Vector<String> protocols;
-    protocols.push_back("binary"); // Compatibility for emscripten TCP-to-WebSocket.
-    client->set_supported_protocols(protocols);
-    client->set_max_queued_packets(max_queued_packets);
-    client->set_inbound_buffer_size(DEFAULT_BUFFER_SIZE);
-    client->set_outbound_buffer_size(DEFAULT_BUFFER_SIZE);
-
-    set_current_state(State::STATE_CONNECTING);
-    Error err = client->connect_to_url(url);
-
-    if (err != OK) {
-        set_current_state(State::STATE_CLOSED);
-        print_line("ERROR! ",err);
-        emit_signal(SNAME("connected"),"",false);
-    }
-
-    ERR_FAIL_COND_V(err != OK, this);
-    set_process(true);
-    return this;
-}
-
-void YNet::create_client() {
-    if (!client.is_valid()) {
-        client = Ref<WebSocketPeer>(WebSocketPeer::create());
-    }
-}
-void YNet::set_max_queued_packets(int p_max_queued_packets) {
-    client->set_max_queued_packets(p_max_queued_packets);
-}
-
 void YNet::_notification(int p_what) {
     switch (p_what) {
         case NOTIFICATION_ENTER_TREE: {
         } break;
-        // case NOTIFICATION_ENTER_WORLD: {
-        // } break;
         case NOTIFICATION_EXIT_TREE: {
-            if(status == STATE_OPEN) {
-                if(!offline_mode) {
-                    engineio_send_packet_charstring(&close_cs);
-                    client->close();
-                    set_current_state(STATE_CLOSED);
-                }
+            if (transport.is_valid()) {
+                transport->transport_exit_tree();
+                transport = Ref<YNetTransport>();
             }
             break;
         }
         case NOTIFICATION_PARENTED: {
-            if (Engine::get_singleton()->is_editor_hint()) {
-            }
             break;
         }
         case NOTIFICATION_WM_CLOSE_REQUEST: {
-            if(status == STATE_OPEN) {
-                if(!offline_mode) {
-                    engineio_send_packet_charstring(&close_cs);
-                    client->close();
-                    set_current_state(STATE_CLOSED);
-                }
+            if (transport.is_valid()) {
+                transport->transport_app_close_request();
+                transport = Ref<YNetTransport>();
             }
         }break;
         case NOTIFICATION_READY: {
@@ -1321,8 +1240,8 @@ void YNet::_notification(int p_what) {
             this->rpc_config(rpc_respond_with_spawned_nodes_stringname,create_rpc_dictionary_config(MultiplayerAPI::RPC_MODE_AUTHORITY, MultiplayerPeer::TRANSFER_MODE_RELIABLE, false, 0));
         } break;
         case NOTIFICATION_PROCESS: {
-            if(client.is_valid()) {
-                do_process();
+            if (transport.is_valid()) {
+                transport->transport_process();
             }
         } break;
         default:
@@ -1392,133 +1311,14 @@ Dictionary YNet::create_rpc_dictionary_config(MultiplayerAPI::RPCMode p_rpc_mode
 }
 
 bool YNet::process_packets() {
-    if(offline_mode) {
-        return true;
+    if (!transport.is_valid()) {
+        return false;
     }
-    while (client->get_available_packet_count()) {
-        const uint8_t *packet;
-        int len;
-        last_get_error = client->get_packet(&packet, len);
-        ERR_FAIL_COND_V_MSG(last_get_error != OK, last_get_error, vformat("Error getting packet! %d", last_get_error));
-        if(!engineio_decode_packet(packet,len))
-            return false;
+    if (offline_mode) {
+        return false;
     }
+    transport->process_packets();
     return true;
-}
-
-bool YNet::engineio_decode_packet(const uint8_t *packet, int len) {
-    String packet_payload;
-    packet_payload.parse_utf8((const char *)packet, len);
-    auto packetType = packet_payload.substr(0,1).to_int();
-    packet_payload = packet_payload.substr(1);
-    switch (packetType) {
-        case open: {
-            if(debugging>1) print_line("[YNet] Received engine.IO open package");
-            JSON json;
-            ERR_FAIL_COND_V_MSG(json.parse(packet_payload) != OK, false, "[YNet] Malformed open message!");
-            Dictionary params = json.get_data();
-            ERR_FAIL_COND_V_MSG(!params.has(key_sid) || !params.has(key_pingTimeout) || !params.has(key_pingInterval), false, "[YNet] Open message was missing one of the variables needed.");
-            sid = params.get(key_sid,key_sid);
-            hashed_sid = string_to_hash_id(sid);
-            real_hashed_sid = hashed_sid;
-            pingInterval = params.get(key_pingInterval,500);
-            pingTimeout = params.get(key_pingTimeout,3000);
-            set_current_state(State::STATE_OPEN);
-            if(debugging>1) print_line("[YNet] Connected to engine.io, SID ",sid," hashed ",hashed_sid," ping interval ",pingInterval, " ping timeout ",pingTimeout);
-            //(SNAME("engine_connection_result"),sid,true);
-            socketio_connect();
-        }
-            break;
-        case close: {
-            if(debugging>1) print_line("[YNet] Received engine.IO close package");
-        }
-            break;
-        case ping: {
-            if(debugging>1) print_line("[YNet] Received engine.IO ping package");
-            engineio_send_packet_charstring(&pong_cs);
-        }
-            break;
-        case pong: {
-            if(debugging>1) print_line("[YNet] Received engine.IO pong package");
-        }
-            break;
-        case message: {
-            if(debugging>2) print_line("[YNet] Received engine.IO message package",packet_payload);
-            socketio_parse_packet(packet_payload);
-            emit_signal(SNAME("engine_message"));
-        }
-            break;
-        case upgrade: {
-            if(debugging>1) print_line("[YNet] Received engine.IO upgrade package");
-        }
-            break;
-        case noop: {
-            if(debugging>1) print_line("[YNet] Received noop message");
-        }
-            break;
-        default:
-            break;
-    }
-    return true;
-}
-
-Error YNet::engineio_send_packet_charstring(const CharString *cs) {
-    return client->send((const uint8_t *)cs->ptr(), cs->length(), WebSocketPeer::WRITE_MODE_TEXT);
-}
-Error YNet::engineio_send_packet_type(const EngineIOPacketType packet_type) {
-    const CharString cs = vformat("%d",packet_type).utf8();
-    return client->send((const uint8_t *)cs.ptr(), cs.length(), WebSocketPeer::WRITE_MODE_TEXT);
-}
-
-Error YNet::engineio_send_packet_binary(EngineIOPacketType packet_type, PackedByteArray &p_message) {
-    p_message.insert(0,static_cast<uint8_t>(packet_type));
-    return client->send(p_message.ptr(), p_message.size(), WebSocketPeer::WRITE_MODE_BINARY);
-}
-
-Error YNet::engineio_send_packet_text(EngineIOPacketType packet_type, String &p_text) {
-    if(p_text.is_empty()) {
-        return engineio_send_packet_type(packet_type);
-    }
-    p_text = vformat("%d%s",packet_type,p_text);
-    const CharString cs = p_text.utf8();
-    return client->send((const uint8_t *)cs.ptr(), cs.length(), WebSocketPeer::WRITE_MODE_TEXT);
-}
-
-Error YNet::socketio_send_packet_binary(SocketIOPacketType packet_type, PackedByteArray &p_message) {
-    p_message.insert(0,static_cast<uint8_t>(packet_type));
-    WARN_PRINT("BINARY SENDING NOT IMPLEMENTED");
-    return ERR_BUG;
-}
-
-Error YNet::socketio_send_packet_text(SocketIOPacketType packet_type, Variant p_text, String name_space) {
-    String _payload = vformat("%d",packet_type);
-    if (!name_space.is_empty() && name_space != slash_namespace) {
-        _payload += vformat("/%s,",name_space);
-    }
-    const auto varianttype = p_text.get_type();
-    if (varianttype != Variant::Type::NIL) {
-        if(varianttype == Variant::Type::ARRAY) {
-            _payload += p_text.to_json_string();
-        } else {
-            _payload += p_text.stringify();
-        }
-    }
-    const CharString cs = vformat("%d%s",EngineIOPacketType::message,_payload).utf8();
-    //WARN_PRINT(vformat("Sending message %s",cs));
-    return client->send((const uint8_t *)cs.ptr(), cs.length(), WebSocketPeer::WRITE_MODE_TEXT);
-}
-
-Error YNet::socketio_send(String event_name, Variant _data, String name_space) {
-    if (_data.get_type() == Variant::Type::ARRAY) {
-        Array payload = _data;
-        payload.push_front(event_name);
-        return socketio_send_packet_text(EVENT,payload,name_space);
-    }
-    Array payload;
-    payload.append(event_name);
-    if (_data.get_type() != Variant::Type::NIL)
-        payload.append(_data);
-    return socketio_send_packet_text(EVENT,payload,name_space);
 }
 
 Ref<PackedScene> YNet::find_network_spawnable(uint32_t new_spawnable_id) {
@@ -1539,190 +1339,6 @@ Node * YNet::find_node_with_net_id(uint32_t p_net_id) {
         }
     }
     return nullptr;
-}
-
-void YNet::socketio_connect(String name_space) {
-    socketio_send_packet_text(CONNECT, name_space);
-}
-
-void YNet::socketio_disconnect(String name_space) {
-    socketio_send_packet_text(DISCONNECT, name_space);
-    emit_signal(SNAME("disconnect"),name_space);
-}
-
-bool YNet::socketio_parse_packet(String& payload) {
-    auto packetType = (EngineIOPacketType)payload.substr(0,1).to_int();
-    payload = payload.substr(1);
-    if(debugging == ALL)
-        print_line(vformat("[YNet %s] PAYLOAD RECEIVED ",sid),payload);
-    auto name_space= slash_namespace;
-
-    auto regex = RegEx::create_from_string("(\\d+)-");
-    auto regex_match = regex->search(payload);
-    if (regex_match.is_valid() && regex_match->get_start(0) == 0) {
-        payload = payload.substr(regex_match->get_end(0));
-        ERR_PRINT("[YNet] Binary data payload not supported! "+regex_match->get_string(1));
-    }
-    regex_match.unref();
-
-
-    regex->compile("(\\w),");
-    regex_match = regex->search(payload);
-    if (regex_match.is_valid() && regex_match->get_start(0) == 0) {
-        payload = payload.substr(regex_match->get_end(0));
-        name_space = regex_match->get_string(1);
-    }
-    regex_match.unref();
-
-    regex->compile("(\\d+)");
-    regex_match = regex->search(payload);
-    if (regex_match.is_valid() && regex_match->get_start(0) == 0) {
-        payload = payload.substr(regex_match->get_end(0));
-        WARN_PRINT("[YNet] Ignoring acknowledgement ID "+regex_match->get_string(1));
-    }
-    regex_match.unref();
-
-    Variant _data {};
-    if(payload.length() > 0) {
-        JSON json;
-        ERR_FAIL_COND_V_MSG(json.parse(payload) != OK, false, vformat("[YNet] Malformed socketio event %d namespace: %s",packetType,name_space));
-        _data = json.get_data();
-    }
-    if(debugging == ALL)
-        print_line("[YNet] Received socketio event ",packetType," data parsed: ",_data," payload parsed: ",payload);
-    switch (static_cast<SocketIOPacketType>(packetType)) {
-        case SocketIOPacketType::CONNECT: {
-            Dictionary data_dict = _data;
-            if (data_dict.has("sid")) {
-                //print_line("Before my sid was (set by engine io) ",sid," now it will be ",data_dict["sid"]);
-                sid = data_dict["sid"];
-                hashed_sid = static_cast<int>(string_to_hash_id(sid));
-                real_hashed_sid = hashed_sid;
-                emit_signal(SNAME("connected"),name_space,true);
-            } else {
-                emit_signal(SNAME("connected"),name_space,false);
-                socketio_disconnect();
-            }
-        }
-            break;
-        case SocketIOPacketType::CONNECT_ERROR:
-            {emit_signal(SNAME("connected"),name_space,false);}
-            break;
-        case SocketIOPacketType::EVENT: {
-            ERR_FAIL_COND_V_MSG(_data.is_array() != true, false, vformat("[YNet] Invalid socketio event format %s",_data.to_json_string()));
-            Array array = _data;
-            const String event_name = array[0];
-            const auto event_hash = event_name.hash();
-            array.remove_at(0);
-            Variant event_payload;
-            if (array.size() == 1) {
-                event_payload = array[0];
-            } else if (array.size() == 0) {
-                event_payload = Variant{};
-            } else {
-                event_payload = array;
-            }
-            if (event_hash == newhost_event) {
-#ifdef HOST_MIGRATION
-                on_host_migrated(event_payload);
-#endif
-            } else if (event_hash == roomcreated_event) {
-                on_room_created(event_payload);
-            } else if (event_hash == roomjoined_event) {
-                on_room_joined(array[0], array[1]);
-            } else if (event_hash == roomplayers_event) {
-                on_room_players(array[0]);
-            } else if (event_hash == roomerror_event) {
-                on_room_error(event_payload);
-            } else if (event_hash == leftroom) {
-                on_left_room();
-            } else if (event_hash == roominfo) {
-                on_room_info(event_payload);
-            } else if (event_hash == roomlist) {
-                on_room_list(event_payload);
-            } else if (event_hash == playerjoin_event) {
-                on_player_join(event_payload);
-            } else if (event_hash == playerleft_event) {
-                on_player_left(event_payload);
-            } else if (event_hash == pkt) {
-                on_received_pkt(array[0],array[1]);
-            }
-            emit_signal(SNAME("event"),event_name,event_payload,name_space);
-            if(debugging == DebuggingLevel::ALL) {
-                print_line(vformat("[YNet %s] Socket IO Event Received = %s = data: = %s =",sid,event_name,event_payload));
-            }
-        }
-            break;
-        case SocketIOPacketType::DISCONNECT:
-            //{emit_signal(SNAME("disconnected"),name_space);}
-            break;
-        case SocketIOPacketType::ACK:
-            break;
-        case SocketIOPacketType::BINARY_ACK:
-            break;
-        case SocketIOPacketType::BINARY_EVENT:
-            break;
-    }
-    return true;
-}
-
-void YNet::update_last_engine_state() {
-    if(offline_mode) {
-        return;
-    }
-    if (last_engine_state != static_cast<State>(client->get_ready_state())) {
-        last_engine_state = static_cast<State>(static_cast<int>(client->get_ready_state()));
-        if(debugging > 1) {
-            switch ((State)last_engine_state) {
-                case STATE_CONNECTING:
-                    print_line("[YNet] Engine.io status is now: Connecting");
-                    break;
-                case STATE_OPEN:
-                    print_line("[YNet] Engine.io status is now: Connected");
-                    break;
-                case STATE_CLOSING:
-                    print_line("[YNet] Engine.io status is now: Closing");
-                    break;
-                case STATE_CLOSED:
-                    print_line("[YNet] Engine.io status is now: Closed");
-                    break;
-                default: ;
-            }
-        }
-    }
-}
-
-void YNet::do_process() {
-    update_last_engine_state();
-
-    if (status == STATE_CONNECTING) {
-        const float current_time = OS::get_singleton()->get_ticks_msec() * 0.001f;
-        if (current_time > tick_started_connecting + 6.0f) {
-            was_timeout=true;
-            emit_signal(SNAME("connected"),"TIMEOUT",false);
-            engineio_disconnect();
-            return;
-        }
-    }
-    client->poll();
-
-    State client_state = static_cast<State>(client->get_ready_state());
-
-    if (client_state == STATE_OPEN) {
-        process_packets();
-        update_networked_property_syncers();
-    } else if(client_state == STATE_CLOSING) {
-    } else if(client_state == STATE_CLOSED) {
-        emit_signal(SNAME("disconnected"),client->get_close_code(),client->get_close_reason());
-        if (status == STATE_OPEN) {
-            //emit_signal("disconnected",slash_namespace);
-        }
-        set_current_state(STATE_CLOSED);
-        if (debugging == ALL) {
-            print_line("[YNet] Closed connection, stoppping process");
-        }
-        set_process(false);
-    }
 }
 
 void YNet::update_networked_property_syncers() {
@@ -1782,14 +1398,8 @@ void YNet::update_networked_property_syncers() {
     }
 }
 
-int YNet::get_max_queued_packets() {
-    if (!client.is_valid()) {
-        YNet::create_client();
-    }
-    return client->get_max_queued_packets();
-}
-
 YNet* YNet::create_room() {
+    transport->create_room();
     socketio_send("requestroom",protocol);
     return this;
 }
@@ -2057,7 +1667,6 @@ YNet::YNet() {
     rpc_respond_with_spawned_nodes_stringname = "rpc_respond_with_spawned_nodes";
     rpc_rec_synced_vars_stringname = "rpc_recv_sync_vars";
     singleton = this;
-    max_queued_packets = 2048;
 
     last_sent_synced_vars = 0ul;
     last_watched_synced_vars = 0ul;
@@ -2065,19 +1674,9 @@ YNet::YNet() {
     call_deferred("setup_node");
 }
 
-void YNet::clear_unhandled_packets() {
-    for (YNetTypes::Packet &E : unhandled_packets) {
-        memfree(E.data);
-        E.data = nullptr;
-    }
-    unhandled_packets.clear();
-}
-
 YNet::~YNet() {
-    clear_unhandled_packets();
-    connections_map.clear();
-    if (client.is_valid()) {
-        client.unref();
+    if (transport.is_valid()) {
+        transport = Ref<YNetTransport>();
     }
     if (singleton != nullptr && singleton == this) {
         // print_line("Removing ynet singleton");

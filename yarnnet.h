@@ -2,16 +2,13 @@
 #define GODOT_YARNNET_H
 
 #include "core/object/ref_counted.h"
-#include "modules/websocket/websocket_peer.h"
 #include "core/error/error_list.h"
 #include "scene/main/node.h"
-#include "core/io/json.h"
-#include "modules/regex/regex.h"
 #include "scene/main/window.h"
 #include "scene/main/multiplayer_api.h"
 #include "scene/main/multiplayer_peer.h"
 #include "ynet_types.h"
-#include <cstring>
+#include "ynet_transport.h"
 #include "core/os/os.h"
 
 
@@ -67,6 +64,10 @@ protected:
     Ref<SceneMultiplayer> scene_multiplayer;
     Ref<YNetPropertySyncer> register_sync_property(Node *p_target, const NodePath &p_property, int authority, bool p_always_sync);
 
+    Ref<YNetTransport> transport;
+    void set_transport(Ref<YNetTransport> p_transport);
+    Ref<YNetTransport> get_transport() const { return transport; }
+
     struct NetworkSpawnedObjectInfo {
         uint32_t network_instance_id;
         uint32_t spawnable_scene_id;
@@ -115,19 +116,12 @@ protected:
                                             int p_channel);
 
     bool ynet_settings_enabled=false;
-    inline static const String slash_namespace = "/";
     bool process_packets();
-
-    void socketio_connect(String name_space = slash_namespace);
-    void socketio_disconnect(String name_space = slash_namespace);
-
-    bool socketio_parse_packet(String &payload);
 
     void update_last_engine_state();
 
     void do_process();
 
-    void update_networked_property_syncers();
 
     void setup_node();
 
@@ -145,32 +139,12 @@ protected:
     inline static YNet* singleton = nullptr;
     HashMap<uint32_t,ObjectID> yrpc_to_node_hash_map;
 
-    void clear_unhandled_packets();
-
 public:
     void remove_from_yrpc_receiving_map(uint32_t p_yrpc_id);
 
+    void update_networked_property_syncers();
+    
     void attempt_despawn_nodes_from_peer_that_left(const uint32_t &p_peer_id);
-
-    enum EngineIOPacketType {
-        open = 0,
-        close = 1,
-        ping = 2,
-        pong = 3,
-        message = 4,
-        upgrade = 5,
-        noop = 6,
-    };
-
-    enum SocketIOPacketType {
-        CONNECT = 0,
-        DISCONNECT = 1,
-        EVENT = 2,
-        ACK = 3,
-        CONNECT_ERROR = 4,
-        BINARY_EVENT = 5,
-        BINARY_ACK = 6,
-    };
 
     enum DebuggingLevel {
         NONE = 0,
@@ -180,41 +154,6 @@ public:
         ALL = 4
     };
 
-    const String key_sid = "sid";
-    const String key_pingTimeout = "pingTimeout";
-    const String key_pingInterval = "pingInterval";
-    const CharString open_cs    = vformat("%d",0).utf8();
-    const CharString close_cs   = vformat("%d",1).utf8();
-    const CharString ping_cs    = vformat("%d",2).utf8();
-    const CharString pong_cs    = vformat("%d",3).utf8();
-    const CharString message_cs = vformat("%d",4).utf8();
-    const CharString upgrade_cs = vformat("%d",5).utf8();
-    const CharString noop_cs    = vformat("%d",6).utf8();
-    uint32_t roomcreated_event = String{"roomcreated"}.hash();
-    uint32_t roomjoined_event  = String{"roomjoined" }.hash();
-    uint32_t roomplayers_event = String{"roomplayers"}.hash();
-    uint32_t roomerror_event   = String{"roomerror"  }.hash();
-    uint32_t playerjoin_event  = String{"playerjoin" }.hash();
-    uint32_t playerleft_event  = String{"playerleft" }.hash();
-    uint32_t newhost_event     = String{"newhost"    }.hash();
-    uint32_t leftroom          = String{"leftroom"   }.hash();
-    uint32_t pkt               = String{"pkt"        }.hash();
-    uint32_t roomlist          = String{"roomlist"   }.hash();
-    uint32_t roominfo          = String{"roominfo"   }.hash();
-
-    List<YNetTypes::Packet> unhandled_packets;
-
-    bool engineio_decode_packet(const uint8_t *packet, int len);
-
-    Error engineio_send_packet_charstring(const CharString *cs);
-
-    Error engineio_send_packet_type(EngineIOPacketType packet_type);
-    Error engineio_send_packet_binary(EngineIOPacketType packet_type, PackedByteArray &p_message);
-    Error engineio_send_packet_text(EngineIOPacketType packet_type, String &p_text);
-    Error socketio_send_packet_binary(SocketIOPacketType packet_type, PackedByteArray &p_message);
-    Error socketio_send_packet_text(SocketIOPacketType packet_type, Variant p_text = {}, String name_space = slash_namespace);
-    Error socketio_send(String event_name, Variant data = {} , String name_space = slash_namespace);
-
     Error _send_yrpc(const Variant **p_args, int p_argcount, Callable::CallError &r_error);
     Error _send_and_receive_yrpc(const Variant **p_args, int p_argcount, Callable::CallError &r_error);
     Error _send_yrpc_to(const Variant **p_args, int p_argcount, Callable::CallError &r_error);
@@ -223,7 +162,6 @@ public:
     
     int next_networked_spawn_id = 1;
 
-    Vector<uint8_t> packet_cache;
 
     enum NetworkNodeIdCompression {
         NETWORK_NODE_ID_COMPRESSION_8 = 0,
@@ -263,13 +201,13 @@ public:
     String protocol ="change_me";
     String get_protocol() const {return protocol;}
     void set_protocol(String val) {protocol = val;}
+
     mutable Error last_get_error = OK;
+
     String url = "";
     String get_url() const {return url;}
     void set_url(String val) {url = val;}
-    Ref<WebSocketPeer> client;
-    Ref<WebSocketPeer> get_client() const {return client;}
-    void set_client(Ref<WebSocketPeer> val) {client = val;}
+
     String sid = "";
     String get_sid() const {return sid;}
     void set_sid(String val) {sid = val;}
@@ -277,6 +215,7 @@ public:
     int real_hashed_sid{};
     int get_real_hashed_sid() const {return real_hashed_sid;}
     void set_real_hashed_sid(int val) {}
+
     int hashed_sid{};
     int get_hashed_sid() const {return hashed_sid;}
     void set_hashed_sid(int val) {}
@@ -300,22 +239,14 @@ public:
     int pingTimeout = 0;
     int get_ping_timeout() const {return pingTimeout;}
     void set_ping_timeout(int val) {pingTimeout = val;}
+
     int pingInterval = 0;
     int get_ping_interval() const {return pingInterval;}
     void set_ping_interval(int val) {pingInterval = val;}
+
     DebuggingLevel debugging = NONE;
     DebuggingLevel get_debugging() const {return debugging;}
     void set_debugging(DebuggingLevel val) {debugging = val;}
-    enum State {
-        STATE_CONNECTING,
-        STATE_OPEN,
-        STATE_CLOSING,
-        STATE_CLOSED
-    };
-    State status = STATE_CLOSED;
-    State last_engine_state = STATE_CLOSED;
-    float tick_started_connecting = 0.0;
-    bool was_timeout = false;
 
     bool has_room() const {return !room_id.is_empty();}
 
@@ -383,62 +314,6 @@ public:
 
     uint32_t get_new_network_id();
 
-    State get_current_state() const {
-        if(offline_mode) {
-            return STATE_OPEN;
-        }
-        return status;
-    }
-
-    void set_current_state(State val) {
-        if (status != val) {
-            status = val;
-            if (status == STATE_CONNECTING) {
-                tick_started_connecting = OS::get_singleton()->get_ticks_msec() * 0.001f;
-            }
-            if (status != STATE_OPEN) {
-                room_id = "";
-            }
-            if (debugging >= 2) {
-                switch ((State)status) {
-                    case STATE_CONNECTING:
-                        print_line("[YNet] Status is now: Connecting");
-                        break;
-                    case STATE_OPEN:
-                        print_line("[YNet] Status is now: Connected");
-                        break;
-                    case STATE_CLOSING:
-                        print_line("[YNet] Status is now: Closing");
-                        break;
-                    case STATE_CLOSED:
-                        print_line("[YNet] Status is now: Closed");
-                        break;
-                    default: ;
-                }
-            }
-            emit_signal("status_changed",val);
-        }
-    }
-
-    enum WriteMode {
-        WRITE_MODE_TEXT,
-        WRITE_MODE_BINARY,
-    };
-
-    enum {
-        DEFAULT_BUFFER_SIZE = 65535,
-    };
-    YNet* engineio_connect(String url);
-
-    void create_client();
-
-    void engineio_disconnect();
-
-
-    int max_queued_packets;
-    void set_max_queued_packets(int p_max_queued_packets);
-    int get_max_queued_packets();
-
     YNet* create_room();
 
     YNet *create_room_with_code(const String &create_room);
@@ -500,9 +375,6 @@ public:
     static void set_debug_run_multiple_instances(bool val);
     static bool get_debug_run_multiple_instances();
 
-    HashMap<String,int> connections_map;
-
-    bool received_any_packet = false;
     static uint32_t string_to_hash_id(const String &p_string);
 
     _FORCE_INLINE_ static YNet* get_singleton() {return singleton;}
@@ -515,10 +387,5 @@ public:
             int usage = PROPERTY_USAGE_DEFAULT, bool restart_if_changed = false);
 
 };
-
-VARIANT_ENUM_CAST(YNet::EngineIOPacketType);
-VARIANT_ENUM_CAST(YNet::SocketIOPacketType);
 VARIANT_ENUM_CAST(YNet::DebuggingLevel);
-VARIANT_ENUM_CAST(YNet::WriteMode);
-VARIANT_ENUM_CAST(YNet::State);
 #endif
