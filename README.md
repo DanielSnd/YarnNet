@@ -36,6 +36,7 @@ The server is made in node.js/socket.io and can be found in the server folder. I
 ```gdscript
 func _on_host_pressed() -> void:
 	var peer:MultiplayerPeer = YnetMultiplayerPeer.new()
+	YNet.transport = YNetSocketIO.new()
 	print("Await for connection attempt")
   ## First step is to connect to the socket.io server. After calling YNet.ynet_connect you need to await for the socket.io connection to happen. If result[1] is false then the connection failed. result[0] is an error String.
 	var result = await YNet.ynet_connect("http://localhost:8211").connected
@@ -68,6 +69,7 @@ The first part is the same as the way to Host a game. It only changes once you a
 ```gdscript
 func _on_join_pressed() -> void:
 	var peer:MultiplayerPeer = YnetMultiplayerPeer.new()
+	YNet.transport = YNetSocketIO.new()
 	print("Await for connection attempt")
   ## First step is to connect to the socket.io server. After calling YNet.ynet_connect you need to await for the socket.io connection to happen. If result[1] is false then the connection failed. result[0] is an error String.
 	var result = await YNet.ynet_connect("http://localhost:8211").connected
