@@ -228,7 +228,7 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('rpctoclients', (roomCode, rpctype, nob,buff) => {
+    socket.on('rpctoclients', (roomCode, rpctype, nob, buff) => {
         //console.log(`Received 'rpctoclients' event for room code: ${roomCode}`);
         if (rooms[roomCode] && rooms[roomCode].host === socket.id) {
             //console.log(`Valid host with socket ID: ${socket.id} is sending RPC to clients`);
@@ -238,7 +238,7 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('rpctoclientid', (roomCode, targetSocketId, rpctype,nob, buff) => {
+    socket.on('rpctoclientid', (roomCode, targetSocketId, rpctype, nob, buff) => {
         //console.log(`Received 'rpctoclientid' event for socket id: ${targetSocketId} in room: ${roomCode}`);
         // Check if the current socket is the host
         if (rooms[roomCode] && rooms[roomCode].host === socket.id) {

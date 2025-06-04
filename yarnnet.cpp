@@ -2,27 +2,13 @@
 
 
 void YNet::_bind_methods() {
-    BIND_ENUM_CONSTANT(open);
-    BIND_ENUM_CONSTANT(close);
-    BIND_ENUM_CONSTANT(ping);
-    BIND_ENUM_CONSTANT(pong);
-    BIND_ENUM_CONSTANT(message);
-    BIND_ENUM_CONSTANT(upgrade);
-    BIND_ENUM_CONSTANT(noop);
-    BIND_ENUM_CONSTANT(CONNECT);
-    BIND_ENUM_CONSTANT(DISCONNECT);
-    BIND_ENUM_CONSTANT(EVENT);
-    BIND_ENUM_CONSTANT(ACK);
-    BIND_ENUM_CONSTANT(CONNECT_ERROR);
-    BIND_ENUM_CONSTANT(BINARY_EVENT);
-    BIND_ENUM_CONSTANT(BINARY_ACK);
 
     BIND_ENUM_CONSTANT(NONE);
     BIND_ENUM_CONSTANT(MINIMAL);
     BIND_ENUM_CONSTANT(MOSTMESSAGES);
     BIND_ENUM_CONSTANT(MESSAGESANDPING);
     BIND_ENUM_CONSTANT(ALL);
-
+    
     ADD_SIGNAL(MethodInfo("room_connection_result", PropertyInfo(Variant::STRING, "room_id"),PropertyInfo(Variant::BOOL, "result")));
     ADD_SIGNAL(MethodInfo("room_connected", PropertyInfo(Variant::INT, "id")));
     ADD_SIGNAL(MethodInfo("room_disconnected", PropertyInfo(Variant::INT, "id")));
@@ -37,22 +23,26 @@ void YNet::_bind_methods() {
     ADD_SIGNAL(MethodInfo("room_error", PropertyInfo(Variant::STRING, "returned_error")));
     ADD_SIGNAL(MethodInfo("player_joined", PropertyInfo(Variant::STRING, "player_sid")));
     ADD_SIGNAL(MethodInfo("player_left", PropertyInfo(Variant::STRING, "player_sid")));
+
+    ADD_SIGNAL(MethodInfo("connected", PropertyInfo(Variant::STRING, "name_space"), PropertyInfo(Variant::BOOL, "result")));
+
 #ifdef HOST_MIGRATION
     ADD_SIGNAL(MethodInfo("host_migration", PropertyInfo(Variant::STRING, "new_host_sid")));
 #endif
 
-    // ADD_SIGNAL(MethodInfo("connected", PropertyInfo(Variant::STRING, "name_space"), PropertyInfo(Variant::BOOL, "result")));
-    // ADD_SIGNAL(MethodInfo("event", PropertyInfo(Variant::STRING, "event_name"),PropertyInfo(Variant::OBJECT, "payload"),PropertyInfo(Variant::STRING, "name_space")));
-
     ClassDB::bind_method(D_METHOD("setup_node"), &YNet::setup_node);
-    ClassDB::bind_method(D_METHOD("ynet_connect", "url"), &YNet::engineio_connect);
-    ClassDB::bind_method(D_METHOD("ynet_disconnect"), &YNet::engineio_disconnect);
+    ClassDB::bind_method(D_METHOD("ynet_connect", "url"), &YNet::connect_to);
+    ClassDB::bind_method(D_METHOD("ynet_disconnect"), &YNet::transport_disconnect);
 
     ClassDB::bind_static_method("YNet",D_METHOD("string_to_hash_id","str"), &YNet::string_to_hash_id);
 
     ClassDB::bind_method(D_METHOD("set_debugging", "debugging_level"), &YNet::set_debugging);
     ClassDB::bind_method(D_METHOD("get_debugging"), &YNet::get_debugging);
     ADD_PROPERTY(PropertyInfo(Variant::INT, "debugging", PROPERTY_HINT_ENUM, "None,Minimal,MostMessages,MesssagesAndPings,All"), "set_debugging", "get_debugging");
+
+    ClassDB::bind_method(D_METHOD("set_transport", "transport"), &YNet::set_transport);
+    ClassDB::bind_method(D_METHOD("get_transport"), &YNet::get_transport);
+    ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "transport", PROPERTY_HINT_RESOURCE_TYPE, "YNetTransport"), "set_transport", "get_transport");
 
     ClassDB::bind_method(D_METHOD("set_is_host", "status"), &YNet::set_is_host);
     ClassDB::bind_method(D_METHOD("get_is_host"), &YNet::get_is_host);
@@ -93,11 +83,10 @@ void YNet::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_new_network_id"), &YNet::get_new_network_id);
 
     ClassDB::bind_method(D_METHOD("create_room"), &YNet::create_room);
-    ClassDB::bind_method(D_METHOD("create_room_with_code", "roomcode"), &YNet::create_room_with_code);
-    ClassDB::bind_method(D_METHOD("join_or_create_room", "roomcode"), &YNet::join_or_create_room, DEFVAL(""));
-    ClassDB::bind_method(D_METHOD("join_room", "roomcode"), &YNet::join_room);
+    ClassDB::bind_method(D_METHOD("create_room_with_code", "roomcode", "password"), &YNet::create_room_with_code, DEFVAL(""));
+    ClassDB::bind_method(D_METHOD("join_or_create_room", "roomcode", "password"), &YNet::join_or_create_room, DEFVAL(""), DEFVAL(""));
+    ClassDB::bind_method(D_METHOD("join_room", "roomcode", "password"), &YNet::join_room, DEFVAL(""));
     ClassDB::bind_method(D_METHOD("leave_room"), &YNet::leave_room);
-    ClassDB::bind_method(D_METHOD("join_room_with_password", "roomCode", "password"), &YNet::join_room_with_password);
 
     ClassDB::bind_method(D_METHOD("set_password", "newPassword"), &YNet::set_password);
     ClassDB::bind_method(D_METHOD("set_max_players", "newMaxPlayers"), &YNet::set_max_players);
@@ -217,6 +206,11 @@ void YNet::_bind_methods() {
     }
 }
 
+void YNet::transport_disconnect() {
+    if (transport.is_valid()) {
+        transport->transport_disconnect();
+    }
+}
 uint32_t YNet::get_new_network_id() {
     uint32_t hash = 0;
 
@@ -748,24 +742,9 @@ void YNet::setup_node() {
     }
 
     protocol = GLOBAL_GET("YNet/settings/protocol");
+    protocol_hash = string_to_hash_id(protocol);
     watch_synced_vars_interval = static_cast<uint64_t>((static_cast<double>(GLOBAL_GET("YNet/settings/watch_synced_properties_interval")) * 1000 * 1000));
     send_synced_vars_interval = static_cast<uint64_t>((static_cast<double>(GLOBAL_GET("YNet/settings/send_synced_properties_interval")) * 1000 * 1000));
-}
-
-void YNet::engineio_disconnect() {
-    if(client.is_valid()) {
-        cleanup_network_state();
-        client->close();
-        emit_signal(SNAME("disconnected"),client->get_close_code(),was_timeout ? "Timed out" : client->get_close_reason());
-        was_timeout=false;
-        if (status == STATE_OPEN || status == STATE_CONNECTING) {
-            //emit_signal(SNAME("disconnected"),slash_namespace);
-            set_current_state(STATE_CLOSED);
-        }
-        update_last_engine_state();
-        set_process(false);
-        client.unref();
-    }
 }
 
 void YNet::rpc_spawn(const uint32_t p_network_id, const uint32_t &p_spawnable_path_id, const String &p_spawn_name, const String &p_desired_parent, const Variant &p_spawn_pos, const int authority) {
@@ -1241,7 +1220,7 @@ void YNet::_notification(int p_what) {
         } break;
         case NOTIFICATION_PROCESS: {
             if (transport.is_valid()) {
-                transport->transport_process();
+                transport->transport_process(this);
             }
         } break;
         default:
@@ -1294,7 +1273,7 @@ void YNet::clear_all_spawned_network_nodes() {
 }
 
 void YNet::on_connected_to_server() {
-    //print_line("on connect to server");
+    // print_line("on connect to server <<<<<<<<<<<<<<<<<<<<<");
     if (!get_multiplayer()->is_server()) {
         rpc(rpc_request_spawned_nodes_stringname,get_multiplayer()->get_unique_id());
     }
@@ -1310,16 +1289,6 @@ Dictionary YNet::create_rpc_dictionary_config(MultiplayerAPI::RPCMode p_rpc_mode
     return _dict_config;
 }
 
-bool YNet::process_packets() {
-    if (!transport.is_valid()) {
-        return false;
-    }
-    if (offline_mode) {
-        return false;
-    }
-    transport->process_packets();
-    return true;
-}
 
 Ref<PackedScene> YNet::find_network_spawnable(uint32_t new_spawnable_id) {
     if (spawnables_dictionary.has(new_spawnable_id)) {
@@ -1399,103 +1368,94 @@ void YNet::update_networked_property_syncers() {
 }
 
 YNet* YNet::create_room() {
-    transport->create_room();
-    socketio_send("requestroom",protocol);
-    return this;
-}
-
-YNet* YNet::create_room_with_code(const String &create_room) {
-    Array payload;
-    payload.push_back(create_room);
-    payload.push_back(protocol);
-    socketio_send("createroomwithcode",payload);
-    return this;
-}
-
-YNet* YNet::join_or_create_room(const String &join_room) {
-    if (join_room.is_empty()) {
-        socketio_send("joinOrCreateRoomRandom",protocol);
-    } else {
-        socketio_send("joinOrCreateRoom",join_room + protocol);
+    if (transport.is_valid()) {
+        transport->create_room();
     }
     return this;
 }
 
-YNet* YNet::join_room(const String &join_room) {
-    socketio_send("joinroom",join_room + protocol);
+YNet* YNet::create_room_with_code(const String &create_room, const String &password) {
+    if (transport.is_valid()) {
+        transport->create_room_with_code(create_room, password);
+    }
+    return this;
+}
+
+YNet* YNet::join_or_create_room(const String &join_room, const String &password) {
+    if (transport.is_valid()) {
+        transport->join_or_create_room(join_room,password);
+    }
+    return this;
+}
+
+YNet* YNet::join_room(const String &join_room, const String &password) {
+    if (transport.is_valid()) {
+        transport->join_room(join_room, password);
+    }
     return this;
 }
 
 YNet* YNet::leave_room() {
-    socketio_send("leaveroom");
-    clear_unhandled_packets();
+    if (transport.is_valid()) {
+        transport->leave_room();
+    }
     room_id = "";
     return this;
 }
 
-YNet* YNet::join_room_with_password(const String &roomCode, const String &password) {
-    Array payload;
-    payload.push_back(roomCode);
-    payload.push_back(password);
-    socketio_send("joinroomwithpassword", payload);
-    return this;
-}
-
 Error YNet::set_password(const String &newPassword) {
-    Array payload;
-    payload.push_back(get_room_id());
-    payload.push_back(newPassword);
-    socketio_send("set_password",  payload);
+    if (transport.is_valid()) {
+        transport->set_password(newPassword);
+    }
     return OK;
 }
 
 Error YNet::set_max_players(int newMaxPlayers) {
-    Array payload;
-    payload.push_back(get_room_id());
-    payload.push_back(newMaxPlayers);
-    socketio_send("set_max_players", payload);
+    if (transport.is_valid()) {
+        transport->set_max_players(newMaxPlayers);
+    }
     return OK;
 }
 
 Error YNet::set_private(bool newPrivate) {
-    Array payload;
-    payload.push_back(get_room_id());
-    payload.push_back(newPrivate);
-    socketio_send("set_private", payload);
+    if (transport.is_valid()) {
+        transport->set_private(newPrivate);
+    }
     return OK;
 }
 
 Error YNet::set_can_host_migrate(bool newCanHostMigrate) {
-    Array payload;
-    payload.push_back(get_room_id());
-    payload.push_back(newCanHostMigrate);
-    socketio_send("set_can_host_migrate", payload);
+    if (transport.is_valid()) {
+        transport->set_can_host_migrate(newCanHostMigrate);
+    }
     return OK;
 }
 
 Error YNet::set_room_name(const String &newRoomName) {
-    Array payload;
-    payload.push_back(get_room_id());
-    payload.push_back(newRoomName);
-    socketio_send("set_room_name", payload);
+    if (transport.is_valid()) {
+        transport->set_room_name(newRoomName);
+    }
     return OK;
 }
 
 Error YNet::set_extra_info(const String &new_extra_info) {
-    Array payload;
-    payload.push_back(get_room_id());
-    payload.push_back(new_extra_info);
-    socketio_send("set_extra_info", payload);
+    if (transport.is_valid()) {
+        transport->set_extra_info(new_extra_info);
+    }
     return OK;
 }
 
 YNet* YNet::get_room_info(const String &roomCode) {
-    socketio_send("get_room_info", roomCode.is_empty() ? room_id : roomCode);
+    if (transport.is_valid()) {
+        transport->get_room_info(roomCode);
+    }
     return this;
 }
 
 YNet* YNet::get_room_list() {
-    socketio_send("get_room_list", protocol);
+    if (transport.is_valid()) {
+        transport->get_room_list();
+    }
     return this;
 }
 
@@ -1503,32 +1463,30 @@ void YNet::on_room_created(const String &p_new_room_id) {
     if(debugging > 0)
         print_line("room_created ",p_new_room_id);
     host_id = sid;
-    host_id_hashed = string_to_hash_id(sid);
+    host_id_hashed = transport->string_to_hash_id(sid);
     is_host = host_id == sid;
     if (is_host) {
         hashed_sid = 1;
     }
     room_id = p_new_room_id;
-    connections_map[sid] = 1;
     emit_signal(SNAME("room_created"),p_new_room_id);
     emit_signal(SNAME("room_connected"),hashed_sid);
     emit_signal(SNAME("room_connection_result"),p_new_room_id,true);
 }
 
-void YNet::on_room_joined(const String &p_new_room_id,const String &p_host_id) {
+void YNet::on_room_joined(const String &p_new_room_id, const String &p_host_id) {
     if(debugging > 0)
-        print_line("on_room_joined ",p_new_room_id," host ",p_host_id," ",string_to_hash_id(p_host_id));
+        print_line("on_room_joined ",p_new_room_id," host ",p_host_id," ",(p_host_id));
     host_id = p_host_id;
-    host_id_hashed = string_to_hash_id(p_host_id);
+    host_id_hashed = transport->string_to_hash_id(p_host_id);
     is_host = host_id == sid;
     if (is_host) {
         hashed_sid = 1;
     }
     room_id = p_new_room_id;
-    connections_map[sid] = hashed_sid;
     emit_signal(SNAME("room_joined"),p_new_room_id,p_host_id);
     emit_signal(SNAME("room_connected"),hashed_sid);
-    emit_signal(SNAME("room_connection_result"),p_new_room_id,true);
+    emit_signal(SNAME("room_connection_result"),p_new_room_id,true);    
 }
 
 void YNet::on_room_error(const String &p_room_error) {
@@ -1558,7 +1516,7 @@ void YNet::on_room_players(const Array &players_array) {
     if(debugging > 1)
         print_line(vformat("on_room_players %s",players_array));
     for (int i = 0; i < players_array.size(); i++)
-        if (const auto& _player = players_array[i]; _player.get_type() == Variant::STRING && !connections_map.has(_player))
+        if (const auto& _player = players_array[i]; _player.get_type() == Variant::STRING && transport.is_valid() && !transport->connections_map.has(_player))
             on_player_join(_player);
 
     emit_signal(SNAME("room_players"),players_array);
@@ -1566,44 +1524,19 @@ void YNet::on_room_players(const Array &players_array) {
 
 void YNet::on_player_join(const String &p_player) {
     if(debugging > 1)
-        print_line("on_player_join ",p_player," ",string_to_hash_id(p_player));
-    connections_map[p_player] = string_to_hash_id(p_player);
+        print_line("on_player_join ",p_player," ",transport->string_to_hash_id(p_player));
+    if (transport.is_valid() && !transport->connections_map.has(p_player)) {
+        transport->connections_map[p_player] = transport->string_to_hash_id(p_player);
+    }
     emit_signal(SNAME("player_joined"),p_player);
 }
 
-void YNet::on_received_pkt(const String &received_from, const String &pkt_content) {
-    if(debugging > DebuggingLevel::MOSTMESSAGES)
-        print_line("on_received_pkt from ",received_from," content: ",pkt_content);
-
-    int strlen = pkt_content.length();
-	CharString cstr = pkt_content.ascii();
-
-	size_t arr_len = 0;
-	Vector<uint8_t> buf;
-	{
-		buf.resize(strlen / 4 * 3 + 1);
-		uint8_t *w = buf.ptrw();
-		Error result = CryptoCore::b64_decode(&w[0], buf.size(), &arr_len, (unsigned char *)cstr.get_data(), strlen);
-        if (result != OK) {
-            ERR_PRINT(vformat("Failed to decode packet %s",pkt_content));
-            return;
-        }
-	}
-	buf.resize(arr_len);
-
-    YNetTypes::Packet packet;
-    packet.data = (uint8_t *)memalloc(arr_len);
-    memcpy(packet.data, buf.ptrw(), arr_len);
-    packet.size = arr_len;
-    packet.source = connections_map.has(received_from) ? static_cast<int>(connections_map[received_from]) : static_cast<int>(string_to_hash_id(received_from));
-    unhandled_packets.push_back(packet);
-}
 
 void YNet::on_player_left(const String &p_player) {
     if(debugging > 1)
         print_line("on_player_left ",p_player);
-    if (connections_map.has(p_player))
-        connections_map.erase(p_player);
+    if (transport.is_valid() && transport->connections_map.has(p_player))
+        transport->connections_map.erase(p_player);
     emit_signal(SNAME("player_left"),p_player);
 }
 
@@ -1612,14 +1545,16 @@ void YNet::on_host_migrated(const String &p_new_host) {
     if(debugging > 1)
         print_line("on_host_migrated ",p_new_host);
     host_id = p_new_host;
-    host_id_hashed = string_to_hash_id(p_new_host);
+    host_id_hashed = transport->string_to_hash_id(p_new_host);
     is_host = host_id == sid;
     WARN_PRINT(vformat("HOST MIGRATION UNDERWAY NEW HOST IS %s I AM %s ... am I new host? %s",p_new_host,sid,host_id == sid));
-    if (is_host) {
-        hashed_sid = 1;
-        connections_map[p_new_host] = 1;
-    } else {
-        connections_map[p_new_host] = 1;
+    if (transport.is_valid()) {
+        if (is_host) {
+            hashed_sid = 1;
+            transport->connections_map[p_new_host] = 1;
+        } else {
+            transport->connections_map[p_new_host] = 1;
+        }
     }
     emit_signal(SNAME("host_migration"),p_new_host);
 }
@@ -1634,6 +1569,27 @@ void YNet::register_for_yrpcs(Node *p_registering_node, uint32_t registering_id)
         }
         p_registering_node->set_meta(SNAME("_net_id"), registering_id);
     }
+}
+
+int YNet::get_transfer_channel() const {
+    if (!scene_multiplayer.is_null() && scene_multiplayer.is_valid() && scene_multiplayer->has_multiplayer_peer()) {
+        return scene_multiplayer->get_multiplayer_peer()->get_transfer_channel();
+    }
+    return 0;
+}
+
+int YNet::get_transfer_mode() const {
+    if (!scene_multiplayer.is_null() && scene_multiplayer.is_valid() && scene_multiplayer->has_multiplayer_peer()) {
+        return scene_multiplayer->get_multiplayer_peer()->get_transfer_mode();
+    }
+    return 0;
+}
+
+int YNet::get_target_peer() const {
+    if (!scene_multiplayer.is_null() && scene_multiplayer.is_valid() && scene_multiplayer->has_multiplayer_peer()) {
+        return _target_peer;
+    }
+    return 0;
 }
 
 uint32_t YNet::string_to_hash_id(const String &p_string) {
@@ -1820,14 +1776,16 @@ void YNet::cleanup_network_state() {
     last_watched_synced_vars = 0;
     
     // Clear unhandled packets
-    clear_unhandled_packets();
+    if (transport.is_valid()) {
+        transport->transport_disconnect();
+        transport = Ref<YNetTransport>();
+    }
     
     // Reset room state
     room_id = "";
     host_id = "";
     host_id_hashed = 0;
     is_host = false;
-    connections_map.clear();
 }
 
 void YNet::set_node_cleanup_with_owner(Node* p_node, bool p_cleanup) {
@@ -1853,4 +1811,16 @@ bool YNet::get_node_cleanup_with_owner(Node* p_node) const {
         return networked_spawned_objects[net_id].cleanup_with_owner;
     }
     return false;
+}
+
+void YNet::connect_to(const String &p_address) {
+    if (transport.is_valid()) {
+        transport->connect_to(p_address);
+    } else {
+        print_line("No transport set");
+    }
+}
+
+void YNet::set_transport(Ref<YNetTransport> p_transport) {
+    transport = p_transport;
 }

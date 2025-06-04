@@ -20,34 +20,25 @@ private:
     String sid;
     float pingTimeout;
     float pingInterval;
-    State status;
-    State last_engine_state;
-    float tick_started_connecting;
-    bool was_timeout;
     int max_queued_packets;
     int debugging;
+    YNetTypes::Packet current_packet;
 
-    inline static const char *close_cs = "1";
     static const int DEFAULT_BUFFER_SIZE = 65535;
 
     bool engineio_decode_packet(const uint8_t *p_packet, int p_size);
     void engineio_send_packet_charstring(const char **p_packet);
-    void socketio_send(const String &p_event, const Array &p_args);
-    void socketio_send_binary(const String &p_event, const Array &p_args);
-    void socketio_send_ack(const String &p_event, const Array &p_args, int p_ack_id);
-    void socketio_send_binary_ack(const String &p_event, const Array &p_args, int p_ack_id);
     inline static const String slash_namespace = "/";
     void socketio_connect(String name_space = slash_namespace);
     void socketio_disconnect(String name_space = slash_namespace);
     bool socketio_parse_packet(String& payload);
     void update_last_engine_state();
     bool process_packets();
-
+    State last_engine_state = STATE_CLOSED;
 protected:
     static void _bind_methods();
 
 public:
-
     enum WriteMode {
         TEXT = 0,
         BINARY = 1
@@ -68,12 +59,12 @@ public:
         DISCONNECT = 1,
         EVENT = 2,
         ACK = 3,
-        ERROR = 4,
+        CONNECT_ERROR = 4,
         BINARY_EVENT = 5,
         BINARY_ACK = 6
     };
 
-    HashMap<String,int> connections_map;
+    List<YNetTypes::Packet> unhandled_packets;
 
     void clear_unhandled_packets();
 
@@ -100,10 +91,6 @@ public:
     uint32_t roomlist          = String{"roomlist"   }.hash();
     uint32_t roominfo          = String{"roominfo"   }.hash();
 
-    List<YNetTypes::Packet> unhandled_packets;
-
-    bool engineio_decode_packet(const uint8_t *packet, int len);
-
     Error engineio_send_packet_charstring(const CharString *cs);
 
     Error engineio_send_packet_type(EngineIOPacketType packet_type);
@@ -114,11 +101,11 @@ public:
     Error socketio_send(String event_name, Variant data = {} , String name_space = slash_namespace);
 
     virtual Error connect_to(const String &p_url) override;
-    virtual void disconnect() override;
+    virtual void transport_disconnect() override;
     virtual Error send_packet(const uint8_t *p_data, int p_size) override;
-    virtual Error poll() override;
     virtual State get_state() const override;
     virtual bool has_packet() const override;
+    virtual int get_packet_peer() const override;
     virtual Error get_packet(const uint8_t **r_packet, int &r_packet_size) override;
     virtual void set_max_queued_packets(int p_max_queued_packets) override;
     virtual int get_max_queued_packets() const override;
@@ -127,9 +114,29 @@ public:
     virtual int get_close_code() const override;
     virtual String get_close_reason() const override;
     void set_supported_protocols(const Vector<String> &p_protocols);
+    virtual void set_current_state(State val) override;
+    virtual State get_current_state() const override;
+
+    virtual int get_max_packet_size() const override;
     virtual void transport_process(YNet* ynet) override;
     virtual void transport_exit_tree() override;
     virtual void transport_app_close_request() override;
+
+    // Room management implementations
+    virtual void create_room() override;
+    virtual void create_room_with_code(const String& room_code, const String& password = "") override;
+    virtual void join_or_create_room(const String& room_code, const String& password = "") override;
+    virtual void join_room(const String& room_code, const String& password = "") override;
+    virtual void leave_room() override;
+    virtual void set_password(const String &password) override;
+    virtual void set_max_players(int max_players) override;
+    virtual void set_private(bool is_private) override;
+    virtual void set_can_host_migrate(bool can_migrate) override;
+    virtual void set_room_name(const String &room_name) override;
+    virtual void set_extra_info(const String &extra_info) override;
+    virtual void get_room_info(const String &room_code) override;
+    virtual void get_room_list() override;
+    virtual void kick_peer(String p_peer, bool p_force) override;
 
     Vector<uint8_t> packet_cache;
 

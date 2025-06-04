@@ -11,6 +11,9 @@ void initialize_yarnnet_module(ModuleInitializationLevel p_level) {
    }
  	ClassDB::register_class<YNet>();
 	ClassDB::register_class<YNetPropertySyncer>();
+	// ClassDB::register_class<YNetTransport>();
+	ClassDB::register_class<YNetSocketIO>();
+	ClassDB::register_class<YNetEnet>();
 
 	// Bind your singleton.
 	Engine::get_singleton()->add_singleton(Engine::Singleton("YNet", memnew(YNet)));

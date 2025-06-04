@@ -30,6 +30,7 @@
 #endif
 
 class YNetPropertySyncer;
+class YNetTransport;
 
 class YNet : public Node {
     GDCLASS(YNet, Node);
@@ -56,6 +57,9 @@ private:
     HashMap<ObjectID, YNetRPCConfigCache> rpc_config_cache;
     
 protected:
+
+    Vector<uint8_t> packet_cache;
+    
     static void _bind_methods();
 
     void _parse_rpc_config(const Dictionary &p_config, bool p_for_node, YNetRPCConfigCache &r_cache);
@@ -63,10 +67,6 @@ protected:
     
     Ref<SceneMultiplayer> scene_multiplayer;
     Ref<YNetPropertySyncer> register_sync_property(Node *p_target, const NodePath &p_property, int authority, bool p_always_sync);
-
-    Ref<YNetTransport> transport;
-    void set_transport(Ref<YNetTransport> p_transport);
-    Ref<YNetTransport> get_transport() const { return transport; }
 
     struct NetworkSpawnedObjectInfo {
         uint32_t network_instance_id;
@@ -116,12 +116,6 @@ protected:
                                             int p_channel);
 
     bool ynet_settings_enabled=false;
-    bool process_packets();
-
-    void update_last_engine_state();
-
-    void do_process();
-
 
     void setup_node();
 
@@ -140,6 +134,10 @@ protected:
     HashMap<uint32_t,ObjectID> yrpc_to_node_hash_map;
 
 public:
+    Ref<YNetTransport> transport;
+    void set_transport(Ref<YNetTransport> p_transport);
+    Ref<YNetTransport> get_transport() const { return transport; }
+
     void remove_from_yrpc_receiving_map(uint32_t p_yrpc_id);
 
     void update_networked_property_syncers();
@@ -200,7 +198,10 @@ public:
 
     String protocol ="change_me";
     String get_protocol() const {return protocol;}
-    void set_protocol(String val) {protocol = val;}
+    void set_protocol(String val) {protocol = val;
+        protocol_hash = string_to_hash_id(protocol);
+    }
+    uint32_t protocol_hash = 0;
 
     mutable Error last_get_error = OK;
 
@@ -316,14 +317,12 @@ public:
 
     YNet* create_room();
 
-    YNet *create_room_with_code(const String &create_room);
+    YNet *create_room_with_code(const String &create_room, const String &password = "");
 
-    YNet* join_or_create_room(const String &join_room);
+    YNet* join_or_create_room(const String &join_room, const String &password = "");
 
-    YNet* join_room(const String &p_join_room);
+    YNet* join_room(const String &p_join_room, const String &password = "");
     YNet* leave_room();
-
-    YNet* join_room_with_password(const String &roomCode, const String &password);
 
     Error set_password(const String &newPassword);
 
@@ -357,8 +356,6 @@ public:
 
     void on_player_join(const String &p_player);
 
-    void on_received_pkt(const String &received_from, const String &pkt_content);
-
     void on_player_left(const String &p_player);
 
 #ifdef HOST_MIGRATION
@@ -375,8 +372,17 @@ public:
     static void set_debug_run_multiple_instances(bool val);
     static bool get_debug_run_multiple_instances();
 
+    void connect_to(const String &p_address);
+
     static uint32_t string_to_hash_id(const String &p_string);
 
+
+    int get_transfer_channel() const;
+    int get_transfer_mode() const;
+    int get_target_peer() const;
+
+    int _target_peer = 0;
+    
     _FORCE_INLINE_ static YNet* get_singleton() {return singleton;}
     YNet();
 
@@ -385,6 +391,8 @@ public:
     void add_setting(const String& name, const Variant& default_value, Variant::Type type,
             PropertyHint hint = PROPERTY_HINT_NONE, const String& hint_string = "",
             int usage = PROPERTY_USAGE_DEFAULT, bool restart_if_changed = false);
+
+    void transport_disconnect();
 
 };
 VARIANT_ENUM_CAST(YNet::DebuggingLevel);

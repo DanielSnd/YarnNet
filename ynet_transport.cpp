@@ -1,22 +1,6 @@
 #include "ynet_transport.h"
 
 void YNetTransport::_bind_methods() {
-    ClassDB::bind_method(D_METHOD("connect_to", "address"), &YNetTransport::connect_to);
-    ClassDB::bind_method(D_METHOD("disconnect"), &YNetTransport::disconnect);
-    ClassDB::bind_method(D_METHOD("send_packet", "data", "size"), &YNetTransport::send_packet);
-    ClassDB::bind_method(D_METHOD("poll"), &YNetTransport::poll);
-    ClassDB::bind_method(D_METHOD("get_state"), &YNetTransport::get_state);
-    ClassDB::bind_method(D_METHOD("has_packet"), &YNetTransport::has_packet);
-    ClassDB::bind_method(D_METHOD("get_packet"), &YNetTransport::get_packet);
-    ClassDB::bind_method(D_METHOD("set_max_queued_packets", "max_queued_packets"), &YNetTransport::set_max_queued_packets);
-    ClassDB::bind_method(D_METHOD("get_max_queued_packets"), &YNetTransport::get_max_queued_packets);
-    ClassDB::bind_method(D_METHOD("set_inbound_buffer_size", "size"), &YNetTransport::set_inbound_buffer_size);
-    ClassDB::bind_method(D_METHOD("set_outbound_buffer_size", "size"), &YNetTransport::set_outbound_buffer_size);
-    ClassDB::bind_method(D_METHOD("get_close_code"), &YNetTransport::get_close_code);
-    ClassDB::bind_method(D_METHOD("get_close_reason"), &YNetTransport::get_close_reason);
-    ClassDB::bind_method(D_METHOD("get_current_state"), &YNetTransport::get_current_state);
-    ClassDB::bind_method(D_METHOD("set_current_state", "state"), &YNetTransport::set_current_state);
-    ADD_PROPERTY(PropertyInfo(Variant::INT, "current_state"), "get_current_state", "set_current_state");
 
     BIND_ENUM_CONSTANT(STATE_CLOSED);
     BIND_ENUM_CONSTANT(STATE_CONNECTING);
@@ -25,7 +9,7 @@ void YNetTransport::_bind_methods() {
 }
 
 YNetTransport::State YNetTransport::get_current_state() const {
-    if(YNet::get_singleton()->get_offline_mode()) {
+    if (YNet::get_singleton()->get_offline_mode()) {
         return STATE_OPEN;
     }
     return status;
@@ -60,6 +44,24 @@ void YNetTransport::set_current_state(YNetTransport::State val) {
             YNet::get_singleton()->emit_signal(SNAME("status_changed"),val);
         }
     }
+
+
+uint32_t YNetTransport::string_to_hash_id(const String &p_string) {
+        /* simple djb2 hashing */
+
+        const char32_t *chr = p_string.get_data();
+        uint32_t hashv = 5381;
+        uint32_t c = *chr++;
+
+        while (c) {
+            hashv = (((hashv) << 5) + hashv) + c; /* hash * 33 + c */
+            c = *chr++;
+        }
+
+        hashv = hash_fmix32(hashv);
+        hashv = hashv & 0x7FFFFFFF; // Make it compatible with unsigned, since negative ID is used for exclusion
+        return hashv;
+}
 
 YNetTransport::YNetTransport() {
 }
