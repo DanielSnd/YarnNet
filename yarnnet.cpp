@@ -80,6 +80,11 @@ void YNet::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_protocol"), &YNet::get_protocol);
     ADD_PROPERTY(PropertyInfo(Variant::STRING, "protocol"), "set_protocol", "get_protocol");
 
+
+    ClassDB::bind_method(D_METHOD("set_server_time", "server_time"), &YNet::set_server_time);
+    ClassDB::bind_method(D_METHOD("get_server_time"), &YNet::get_server_time);
+    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "server_time"), "set_server_time", "get_server_time");
+
     ClassDB::bind_method(D_METHOD("get_new_network_id"), &YNet::get_new_network_id);
 
     ClassDB::bind_method(D_METHOD("create_room"), &YNet::create_room);
@@ -133,6 +138,8 @@ void YNet::_bind_methods() {
     ClassDB::bind_method(D_METHOD("rpc_recv_sync_vars","synced_vars_data"), &YNet::rpc_recv_sync_vars);
     ClassDB::bind_method(D_METHOD("rpc_respond_with_spawned_nodes","spawned_nodes_data"), &YNet::rpc_respond_with_spawned_nodes);
     ClassDB::bind_method(D_METHOD("rpc_request_spawned_nodes","requester_id"), &YNet::rpc_request_spawned_nodes);
+    ClassDB::bind_method(D_METHOD("rpc_time_sync_request","client_time"), &YNet::rpc_time_sync_request);
+    ClassDB::bind_method(D_METHOD("rpc_time_sync_response","server_time","rtt"), &YNet::rpc_time_sync_response);
 
     ClassDB::bind_static_method("YNet",D_METHOD("get_debug_run_multiple_instances"), &YNet::get_debug_run_multiple_instances);
     ClassDB::bind_static_method("YNet",D_METHOD("set_debug_run_multiple_instances","status"), &YNet::set_debug_run_multiple_instances);
@@ -204,6 +211,10 @@ void YNet::_bind_methods() {
 
         ClassDB::bind_vararg_method(METHOD_FLAGS_DEFAULT, "receive_yrpc_unreliable_call_local", &YNet::_receive_yrpc_also_local, mi);
     }
+
+    // Add time sync RPC methods
+    ClassDB::bind_method(D_METHOD("get_rtt"), &YNet::get_rtt);
+    ClassDB::bind_method(D_METHOD("is_time_synced"), &YNet::is_time_synced);
 }
 
 void YNet::transport_disconnect() {
@@ -1207,6 +1218,9 @@ void YNet::_notification(int p_what) {
             scene_multiplayer = get_multiplayer();
             scene_multiplayer->connect(SNAME("peer_packet"), callable_mp(this, &YNet::on_received_peer_packet));
             scene_multiplayer->connect(SNAME("connected_to_server"),callable_mp(this,&YNet::on_connected_to_server));
+            
+            this->rpc_config(rpc_time_sync_request_stringname, create_rpc_dictionary_config(MultiplayerAPI::RPC_MODE_ANY_PEER, MultiplayerPeer::TRANSFER_MODE_UNRELIABLE, false, 0));
+            this->rpc_config(rpc_time_sync_response_stringname, create_rpc_dictionary_config(MultiplayerAPI::RPC_MODE_AUTHORITY, MultiplayerPeer::TRANSFER_MODE_UNRELIABLE, false, 0));
             this->rpc_config(receive_yrpc_stringname,create_rpc_dictionary_config(MultiplayerAPI::RPC_MODE_ANY_PEER, MultiplayerPeer::TRANSFER_MODE_UNRELIABLE_ORDERED, false, 0));
             this->rpc_config(receive_yrpc_also_local_stringname,create_rpc_dictionary_config(MultiplayerAPI::RPC_MODE_ANY_PEER, MultiplayerPeer::TRANSFER_MODE_UNRELIABLE_ORDERED, true, 0));
             this->rpc_config(receive_yrpc_reliable_stringname,create_rpc_dictionary_config(MultiplayerAPI::RPC_MODE_ANY_PEER, MultiplayerPeer::TRANSFER_MODE_RELIABLE, false, 0));
@@ -1221,6 +1235,50 @@ void YNet::_notification(int p_what) {
         case NOTIFICATION_PROCESS: {
             if (transport.is_valid()) {
                 transport->transport_process(this);
+            }
+            if (room_id.is_empty())
+                return;
+
+               float delta = get_process_delta_time();
+                if (!has_synced_time) {
+                    // Before first sync, just increment normally
+                    server_time += delta;
+                } else {
+                    // After sync, we should maintain the synchronized time
+                    if (is_adjusting_time) {
+                        float current_local_time = OS::get_singleton()->get_ticks_msec() / 1000.0f;
+                        float expected_server_time = current_local_time + target_time_offset;
+                        float time_difference = expected_server_time - server_time;
+                        
+                        // If we're close enough, stop adjusting
+                        if (Math::abs(time_difference) < 0.01f) {
+                            is_adjusting_time = false;
+                            time_offset = target_time_offset;
+                        } else {
+                            // Calculate adjustment factor
+                            float adjustment_factor = 1.0f;
+                            if (time_difference > 0) {
+                                // We're behind, speed up
+                                adjustment_factor = 1.0f + (time_difference * time_adjustment_rate);
+                                adjustment_factor = MIN(adjustment_factor, 2.0f);
+                            } else {
+                                // We're ahead, slow down
+                                adjustment_factor = 1.0f + (time_difference * time_adjustment_rate);
+                                adjustment_factor = MAX(adjustment_factor, 0.1f);
+                            }
+                            
+                            server_time += delta * adjustment_factor;
+                        }
+                    } else {
+                        // Normal progression after sync - just add delta
+                        server_time += delta;
+                    }
+                }
+            // Periodically sync time with server
+            float current_time = OS::get_singleton()->get_ticks_msec() / 1000.0f;
+            if (current_time - last_time_sync >= time_sync_interval) {
+                _send_time_sync_request();
+                last_time_sync = current_time;
             }
         } break;
         default:
@@ -1628,6 +1686,9 @@ YNet::YNet() {
     last_watched_synced_vars = 0ul;
 
     call_deferred("setup_node");
+
+    rpc_time_sync_request_stringname = "rpc_time_sync_request";
+    rpc_time_sync_response_stringname = "rpc_time_sync_response";
 }
 
 YNet::~YNet() {
@@ -1823,4 +1884,86 @@ void YNet::connect_to(const String &p_address) {
 
 void YNet::set_transport(Ref<YNetTransport> p_transport) {
     transport = p_transport;
+}
+
+float YNet::get_server_time() const {
+    return server_time;
+}
+
+void YNet::set_server_time(float server_time) const {
+    
+}
+
+float YNet::get_rtt() const {
+    return rtt;
+}
+
+void YNet::_send_time_sync_request() {
+    if (!get_multiplayer()->is_server()) {
+        
+        float client_send_time = OS::get_singleton()->get_ticks_msec() / 1000.0f;
+        // print_line(vformat("Sending time sync request at local time: %.2f", client_send_time));
+
+        Array p_arguments;
+        p_arguments.push_back(client_send_time);
+        int argcount = p_arguments.size();
+        const Variant **argptrs = (const Variant **)alloca(sizeof(Variant *) * argcount);
+        for (int i = 0; i < argcount; i++)
+            argptrs[i] = &p_arguments[i];
+        scene_multiplayer->rpcp(this, 1, rpc_time_sync_request_stringname, argptrs, argcount);
+    }
+}
+void YNet::_handle_time_sync_response(float server_time, float client_send_time) {
+    float client_receive_time = OS::get_singleton()->get_ticks_msec() / 1000.0f;
+    
+    // Calculate RTT
+    this->rtt = client_receive_time - client_send_time;
+    float latency = rtt * 0.5f;
+    
+    // What should the server time be right now?
+    float estimated_current_server_time = server_time + latency;
+    
+    // Calculate the new target offset
+    target_time_offset = estimated_current_server_time - client_receive_time;
+    
+    
+    if (!has_synced_time) {
+        // For first sync, just set the server time directly
+        this->server_time = estimated_current_server_time;
+
+        // Calculate offset for future reference
+        time_offset = estimated_current_server_time - client_receive_time;
+        target_time_offset = time_offset;
+
+        has_synced_time = true;
+    } else {
+        // Subsequent syncs - check if we need to adjust
+        float current_difference = target_time_offset - time_offset;
+        
+        if (Math::abs(current_difference) > 0.05f) { // Only adjust if difference > 50ms
+            is_adjusting_time = true;
+            // Adjust more aggressively for larger differences
+            time_adjustment_rate = MIN(Math::abs(current_difference) * 4.0f, 10.0f);
+        }
+    }
+}
+
+void YNet::rpc_time_sync_request(float client_send_time) {
+    if (get_multiplayer()->is_server()) {
+        Array p_arguments;
+        p_arguments.push_back(server_time); // Current server time
+        p_arguments.push_back(client_send_time); // Original client send time
+        int argcount = p_arguments.size();
+        const Variant **argptrs = (const Variant **)alloca(sizeof(Variant *) * argcount);
+        for (int i = 0; i < argcount; i++) {
+            argptrs[i] = &p_arguments[i];
+        }
+        scene_multiplayer->rpcp(this, scene_multiplayer->get_remote_sender_id(), rpc_time_sync_response_stringname, argptrs, argcount);
+    }
+}
+
+void YNet::rpc_time_sync_response(float server_time, float client_send_time) {
+    if (!get_multiplayer()->is_server()) {
+        _handle_time_sync_response(server_time, client_send_time);
+    }
 }

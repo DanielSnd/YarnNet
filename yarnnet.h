@@ -133,6 +133,24 @@ protected:
     inline static YNet* singleton = nullptr;
     HashMap<uint32_t,ObjectID> yrpc_to_node_hash_map;
 
+    // Server time tracking
+    float server_time = 0.0f;
+    float time_sync_interval = 1.0f; // How often to sync time (in seconds)
+    float last_time_sync = 0.0f;
+    float rtt = 0.0f; // Round trip time in seconds
+    float time_offset = 0.0f; // Client's time offset from server
+    float target_time_offset = 0.0f;
+    float time_adjustment_rate = 2.0f;
+    bool has_synced_time = false;
+    bool is_adjusting_time = false;
+
+    void _sync_time_with_server();
+    void _handle_time_sync_response(float server_time, float rtt);
+    void _send_time_sync_request();
+
+    StringName rpc_time_sync_request_stringname;
+    StringName rpc_time_sync_response_stringname;
+
 public:
     Ref<YNetTransport> transport;
     void set_transport(Ref<YNetTransport> p_transport);
@@ -394,6 +412,13 @@ public:
 
     void transport_disconnect();
 
+    // Time related methods
+    float get_server_time() const;
+    void set_server_time(float server_time) const;
+    float get_rtt() const;
+    bool is_time_synced() const { return has_synced_time; }
+    void rpc_time_sync_request(float client_time);
+    void rpc_time_sync_response(float server_time, float rtt);
 };
 VARIANT_ENUM_CAST(YNet::DebuggingLevel);
 #endif
