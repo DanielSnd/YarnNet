@@ -3,7 +3,7 @@
 #define YNET_ENET_H
 
 #include "ynet_transport.h"
-#include "enet/enet.h"
+#include <enet/enet.h>
 #include "core/io/json.h"
 #include "core/string/ustring.h"
 #include "core/variant/variant.h"
