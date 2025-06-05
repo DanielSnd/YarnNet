@@ -13,7 +13,7 @@ class YNetMessage : public RefCounted {
 public:
 
     enum MessageType {
-        ERROR = 0,
+        MESSAGE_ERROR = 0,
         ROOM_CREATE = 1,
         ROOM_JOIN = 2,
         ROOM_LEAVE = 3,
@@ -49,7 +49,7 @@ public:
     };
 
 
-    uint8_t type;
+    MessageType type;
     uint16_t roomId;
     String data;
 
@@ -68,7 +68,7 @@ public:
     String password;
 
     YNetJoinRoomWithPasswordMessage() {
-        type = 16; // JOIN_ROOM_WITH_PASSWORD
+        type = YNetMessage::JOIN_ROOM_WITH_PASSWORD;
     }
 
     virtual PackedByteArray serialize() const override;
@@ -84,7 +84,7 @@ public:
     String jsonRoomPlayers;
 
     YNetConfirmRoomJoinMessage() {
-        type = 5; // CONFIRM_ROOM_JOIN
+        type = YNetMessage::CONFIRM_ROOM_JOIN;
     }
 
     virtual PackedByteArray serialize() const override;
@@ -101,7 +101,7 @@ public:
     PackedByteArray packetData;
 
     YNetPacketMessage() : targetClientId(0) {
-        type = 10; // PACKET_TO_SERVER
+        type = YNetMessage::PACKET_TO_SERVER;
         channel = 0;
         reliability = 1;
     }
@@ -117,7 +117,7 @@ public:
     String settingValue;
 
     YNetRoomSettingMessage() {
-        type = 17; // SET_ROOM_PASSWORD
+        type = YNetMessage::SET_ROOM_PASSWORD;
     }
 
     virtual PackedByteArray serialize() const override;
@@ -131,7 +131,7 @@ public:
     uint16_t clientId;
 
     YNetConfirmConnectionMessage() {
-        type = YNetMessage::MessageType::CONFIRM_CONNECTION;
+        type = YNetMessage::CONFIRM_CONNECTION;
     }
 
     virtual PackedByteArray serialize() const override;

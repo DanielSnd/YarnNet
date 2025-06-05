@@ -2,7 +2,7 @@ def can_build(env, platform):
     return True
 
 def configure(env):
-    pass
+    env.Append(CPPPATH=['#thirdparty/enet/'])
 
 def get_doc_path():
 	return "doc_classes"

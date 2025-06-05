@@ -1,13 +1,13 @@
 #include "ynet_messages.h"
 
 YNetMessage::YNetMessage() {
-    type = 0;
+    type = static_cast<MessageType>(0);
 }
 
 PackedByteArray YNetMessage::serialize() const {
     PackedByteArray result;
     result.resize(1); // Space for type
-    result.write[0] = type;
+    result.write[0] = static_cast<uint8_t>(type);
     
     // Encode data as a variant
     int len = 0;
@@ -22,7 +22,7 @@ bool YNetMessage::deserialize(const PackedByteArray &p_data) {
     if (p_data.size() < 1) return false;
     
     const uint8_t *ptr = p_data.ptr();
-    type = ptr[0];
+    type = static_cast<MessageType>(ptr[0]);
     
     // Decode data as a variant
     int len = 0;
@@ -36,7 +36,7 @@ bool YNetMessage::deserialize(const PackedByteArray &p_data) {
 PackedByteArray YNetJoinRoomWithPasswordMessage::serialize() const {
     PackedByteArray result;
     result.resize(1); // Space for type
-    result.write[0] = type;
+    result.write[0] = static_cast<uint8_t>(type);
     
     // Encode room code and password as variants
     int len1 = 0;
@@ -59,7 +59,7 @@ bool YNetJoinRoomWithPasswordMessage::deserialize(const PackedByteArray &p_data)
     if (p_data.size() < 1) return false;
     
     const uint8_t *ptr = p_data.ptr();
-    type = ptr[0];
+    type = static_cast<MessageType>(ptr[0]);
     ptr++;
     
     // Decode room code and password as variants
@@ -81,7 +81,7 @@ bool YNetJoinRoomWithPasswordMessage::deserialize(const PackedByteArray &p_data)
 PackedByteArray YNetConfirmRoomJoinMessage::serialize() const {
     PackedByteArray result;
     result.resize(1); // Space for type
-    result.write[0] = type;
+    result.write[0] = static_cast<uint8_t>(type);
     
     // Encode room code and players JSON as variants
     int len = 0;
@@ -104,7 +104,7 @@ bool YNetConfirmRoomJoinMessage::deserialize(const PackedByteArray &p_data) {
     if (p_data.size() < 1) return false;
     
     const uint8_t *ptr = p_data.ptr();
-    type = ptr[0];
+    type = static_cast<MessageType>(ptr[0]);
     ptr++;
     
     // Decode room code and players JSON as variants
@@ -141,7 +141,7 @@ bool YNetPacketMessage::deserialize(const PackedByteArray &p_data) {
     if (p_data.size() < 1) return false;
     
     const uint8_t *ptr = p_data.ptr();
-    type = ptr[0];
+    type = static_cast<MessageType>(ptr[0]);
     channel = ptr[1];
     reliability = ptr[2];
     targetClientId = decode_uint32(ptr + 3);
@@ -153,7 +153,7 @@ bool YNetPacketMessage::deserialize(const PackedByteArray &p_data) {
 PackedByteArray YNetRoomSettingMessage::serialize() const {
     PackedByteArray result;
     result.resize(1); // Space for type
-    result.write[0] = type;
+    result.write[0] = static_cast<uint8_t>(type);
     
     // Encode setting value as a variant
     int len = 0;
@@ -170,7 +170,7 @@ bool YNetRoomSettingMessage::deserialize(const PackedByteArray &p_data) {
     if (p_data.size() < 1) return false;
     
     const uint8_t *ptr = p_data.ptr();
-    type = ptr[0];
+    type = static_cast<MessageType>(ptr[0]);
     ptr++;
     
     // Decode setting value as a variant
@@ -186,7 +186,7 @@ bool YNetRoomSettingMessage::deserialize(const PackedByteArray &p_data) {
 PackedByteArray YNetConfirmConnectionMessage::serialize() const {
     PackedByteArray result;
     result.resize(3); // Space for type
-    result.write[0] = type;
+    result.write[0] = static_cast<uint8_t>(type);
     encode_uint16(clientId, &result.write[1]);
     return result;
 }
@@ -194,7 +194,7 @@ PackedByteArray YNetConfirmConnectionMessage::serialize() const {
 bool YNetConfirmConnectionMessage::deserialize(const PackedByteArray &p_data) {
     if (p_data.size() < 1) return false;
     const uint8_t *ptr = p_data.ptr();
-    type = ptr[0];
+    type = static_cast<MessageType>(ptr[0]);
     ptr++;
     clientId = decode_uint16(ptr);
     return true;

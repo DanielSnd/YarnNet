@@ -1890,7 +1890,7 @@ float YNet::get_server_time() const {
     return server_time;
 }
 
-void YNet::set_server_time(float server_time) const {
+void YNet::set_server_time(float p_server_time) const {
     
 }
 
@@ -1913,15 +1913,15 @@ void YNet::_send_time_sync_request() {
         scene_multiplayer->rpcp(this, 1, rpc_time_sync_request_stringname, argptrs, argcount);
     }
 }
-void YNet::_handle_time_sync_response(float server_time, float client_send_time) {
+void YNet::_handle_time_sync_response(float p_server_time, float p_client_send_time) {
     float client_receive_time = OS::get_singleton()->get_ticks_msec() / 1000.0f;
     
     // Calculate RTT
-    this->rtt = client_receive_time - client_send_time;
+    this->rtt = client_receive_time - p_client_send_time;
     float latency = rtt * 0.5f;
     
     // What should the server time be right now?
-    float estimated_current_server_time = server_time + latency;
+    float estimated_current_server_time = p_server_time + latency;
     
     // Calculate the new target offset
     target_time_offset = estimated_current_server_time - client_receive_time;
@@ -1962,8 +1962,8 @@ void YNet::rpc_time_sync_request(float client_send_time) {
     }
 }
 
-void YNet::rpc_time_sync_response(float server_time, float client_send_time) {
+void YNet::rpc_time_sync_response(float p_server_time, float p_client_send_time) {
     if (!get_multiplayer()->is_server()) {
-        _handle_time_sync_response(server_time, client_send_time);
+        _handle_time_sync_response(p_server_time, p_client_send_time);
     }
 }

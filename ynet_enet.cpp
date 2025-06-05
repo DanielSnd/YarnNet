@@ -316,7 +316,7 @@ void YNetEnet::handle_received_message(const uint8_t* data, size_t dataLength) {
             }
         } break;
 
-        case YNetMessage::MessageType::ERROR: { // ERROR
+        case YNetMessage::MessageType::MESSAGE_ERROR: { // ERROR
             Ref<YNetMessage> msg;
             msg.instantiate();
             if (msg->deserialize(packet_data)) {
@@ -380,11 +380,11 @@ Error YNetEnet::send_packet(const uint8_t *p_data, int p_size) {
     msg.instantiate();
     msg->targetClientId = YNet::get_singleton()->get_target_peer();
     if (msg->targetClientId <= 0) {
-        msg->type = static_cast<uint8_t>(YNetMessage::MessageType::PACKET_TO_CLIENTS);
+        msg->type = (YNetMessage::MessageType::PACKET_TO_CLIENTS);
     } else if (msg->targetClientId == 1) {
-        msg->type = static_cast<uint8_t>(YNetMessage::MessageType::PACKET_TO_SERVER);
+        msg->type = (YNetMessage::MessageType::PACKET_TO_SERVER);
     } else {
-        msg->type = static_cast<uint8_t>(YNetMessage::MessageType::PACKET_TO_CLIENT);
+        msg->type = (YNetMessage::MessageType::PACKET_TO_CLIENT);
     }
     msg->packetData.resize(p_size);
     msg->channel = YNet::get_singleton()->get_transfer_channel();
@@ -409,7 +409,7 @@ void YNetEnet::create_room() {
 
     Ref<YNetMessage> msg;
     msg.instantiate();
-    msg->type = static_cast<uint8_t>(YNetMessage::MessageType::ROOM_CREATE); // ROOM_CREATE
+    msg->type = (YNetMessage::MessageType::ROOM_CREATE); // ROOM_CREATE
     msg->data = "";
     send_message(msg);
 }
@@ -419,14 +419,14 @@ void YNetEnet::create_room_with_code(const String &room_code, const String &pass
     if (!password.is_empty()) {
         Ref<YNetJoinRoomWithPasswordMessage> msg;
         msg.instantiate();
-        msg->type = static_cast<uint8_t>(YNetMessage::MessageType::CREATE_ROOM_WITH_PASSWORD); // ROOM_CREATE
+        msg->type = (YNetMessage::MessageType::CREATE_ROOM_WITH_PASSWORD); // ROOM_CREATE
         msg->roomCode = room_code;
         msg->password = password;
         send_message(msg);
     } else {
         Ref<YNetMessage> msg;
         msg.instantiate();
-        msg->type = static_cast<uint8_t>(YNetMessage::MessageType::ROOM_CREATE); // ROOM_CREATE
+        msg->type = (YNetMessage::MessageType::ROOM_CREATE); // ROOM_CREATE
         msg->data = room_code;
         send_message(msg);
     }
@@ -436,7 +436,7 @@ void YNetEnet::join_room(const String &room_code, const String &password) {
     if (get_state() != STATE_OPEN) return;
     Ref<YNetJoinRoomWithPasswordMessage> msg;
     msg.instantiate();
-    msg->type = static_cast<uint8_t>(YNetMessage::MessageType::JOIN_ROOM_WITH_PASSWORD); // ROOM_JOIN
+    msg->type = (YNetMessage::MessageType::JOIN_ROOM_WITH_PASSWORD); // ROOM_JOIN
     msg->roomCode = room_code;
     msg->password = password;
     send_message(msg);
@@ -447,7 +447,7 @@ void YNetEnet::leave_room() {
 
     Ref<YNetMessage> msg;
     msg.instantiate();
-    msg->type = static_cast<uint8_t>(YNetMessage::MessageType::ROOM_LEAVE); // ROOM_LEAVE
+    msg->type = (YNetMessage::MessageType::ROOM_LEAVE); // ROOM_LEAVE
     send_message(msg);
 
     clear_unhandled_packets();
@@ -459,12 +459,12 @@ void YNetEnet::join_or_create_room(const String &room_code, const String &passwo
 
     if (room_code.is_empty()){
         Ref<YNetMessage> msg;
-        msg->type = static_cast<uint8_t>(YNetMessage::MessageType::JOIN_OR_CREATE_ROOM_RANDOM);
+        msg->type = (YNetMessage::MessageType::JOIN_OR_CREATE_ROOM_RANDOM);
         send_message(msg);
     } else {
         Ref<YNetJoinRoomWithPasswordMessage> msg;
         msg.instantiate();
-        msg->type = static_cast<uint8_t>(YNetMessage::MessageType::JOIN_OR_CREATE_ROOM); // JOIN_OR_CREATE_ROOM
+        msg->type = (YNetMessage::MessageType::JOIN_OR_CREATE_ROOM); // JOIN_OR_CREATE_ROOM
         msg->roomCode = room_code;
         msg->password = password;
         send_message(msg);
@@ -476,7 +476,7 @@ void YNetEnet::set_password(const String &password) {
 
     Ref<YNetRoomSettingMessage> msg;
     msg.instantiate();
-    msg->type = static_cast<uint8_t>(YNetMessage::MessageType::SET_ROOM_PASSWORD); // SET_ROOM_PASSWORD
+    msg->type = (YNetMessage::MessageType::SET_ROOM_PASSWORD); // SET_ROOM_PASSWORD
     msg->settingValue = password;
     send_message(msg);
 }
@@ -486,7 +486,7 @@ void YNetEnet::set_max_players(int max_players) {
 
     Ref<YNetRoomSettingMessage> msg;
     msg.instantiate();
-    msg->type = static_cast<uint8_t>(YNetMessage::MessageType::SET_MAX_PLAYERS); // SET_MAX_PLAYERS
+    msg->type = (YNetMessage::MessageType::SET_MAX_PLAYERS); // SET_MAX_PLAYERS
     msg->settingValue = String::num(max_players);
     send_message(msg);
 }
@@ -496,7 +496,7 @@ void YNetEnet::set_private(bool is_private) {
 
     Ref<YNetRoomSettingMessage> msg;
     msg.instantiate();
-    msg->type = static_cast<uint8_t>(YNetMessage::MessageType::SET_ROOM_PRIVATE); // SET_ROOM_PRIVATE
+    msg->type = (YNetMessage::MessageType::SET_ROOM_PRIVATE); // SET_ROOM_PRIVATE
     msg->settingValue = is_private ? "true" : "false";
     send_message(msg);
 }
@@ -506,7 +506,7 @@ void YNetEnet::set_can_host_migrate(bool can_migrate) {
 
     Ref<YNetRoomSettingMessage> msg;
     msg.instantiate();
-    msg->type = static_cast<uint8_t>(YNetMessage::MessageType::SET_HOST_MIGRATION); // SET_HOST_MIGRATION
+    msg->type = (YNetMessage::MessageType::SET_HOST_MIGRATION); // SET_HOST_MIGRATION
     msg->settingValue = can_migrate ? "true" : "false";
     send_message(msg);
 }
@@ -516,7 +516,7 @@ void YNetEnet::set_room_name(const String &room_name) {
 
     Ref<YNetRoomSettingMessage> msg;
     msg.instantiate();
-    msg->type = static_cast<uint8_t>(YNetMessage::MessageType::SET_ROOM_NAME); // SET_ROOM_NAME
+    msg->type = (YNetMessage::MessageType::SET_ROOM_NAME); // SET_ROOM_NAME
     msg->settingValue = room_name;
     send_message(msg);
 }
@@ -526,7 +526,7 @@ void YNetEnet::set_extra_info(const String &extra_info) {
 
     Ref<YNetRoomSettingMessage> msg;
     msg.instantiate();
-    msg->type = static_cast<uint8_t>(YNetMessage::MessageType::SET_EXTRA_INFO); // SET_EXTRA_INFO
+    msg->type = (YNetMessage::MessageType::SET_EXTRA_INFO); // SET_EXTRA_INFO
     msg->settingValue = extra_info;
     send_message(msg);
 }
@@ -536,7 +536,7 @@ void YNetEnet::get_room_info(const String &room_code) {
 
     Ref<YNetMessage> msg;
     msg.instantiate();
-    msg->type = static_cast<uint8_t>(YNetMessage::MessageType::GET_ROOM_INFO); // GET_ROOM_INFO
+    msg->type = (YNetMessage::MessageType::GET_ROOM_INFO); // GET_ROOM_INFO
     msg->data = room_code;
     send_message(msg);
 }
@@ -546,7 +546,7 @@ void YNetEnet::get_room_list() {
 
     Ref<YNetMessage> msg;
     msg.instantiate();
-    msg->type = static_cast<uint8_t>(YNetMessage::MessageType::GET_ROOM_LIST); // GET_ROOM_LIST
+    msg->type = (YNetMessage::MessageType::GET_ROOM_LIST); // GET_ROOM_LIST
     send_message(msg);
 }
 
@@ -555,7 +555,7 @@ void YNetEnet::kick_peer(String p_peer, bool p_force) {
 
     Ref<YNetMessage> msg;
     msg.instantiate();
-    msg->type = static_cast<uint8_t>(YNetMessage::MessageType::KICK_CLIENT); // KICK_CLIENT
+    msg->type = (YNetMessage::MessageType::KICK_CLIENT); // KICK_CLIENT
     msg->data = p_peer;
     send_message(msg);
 }
