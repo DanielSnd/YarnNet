@@ -203,10 +203,6 @@ void YNetEnet::transport_process(YNet* ynet) {
             } break;
 
             case ENET_EVENT_TYPE_RECEIVE: {
-                if (debugging >= YNet::DebuggingLevel::ALL) {
-                    print_line("[YNet] Received packet of length ", event.packet->dataLength);
-                }
-                
                 // Handle the message
                 handle_received_message(event.packet->data, event.packet->dataLength);
                 
