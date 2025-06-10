@@ -393,7 +393,7 @@ Error YNetEnet::send_packet(const uint8_t *p_data, int p_size) {
         msg->reliability == MultiplayerPeer::TransferMode::TRANSFER_MODE_RELIABLE ? ENET_PACKET_FLAG_RELIABLE : ENET_PACKET_FLAG_UNSEQUENCED
     );
 
-    if (enet_peer_send(peer, 0, packet) < 0) {
+    if (enet_peer_send(peer, msg->channel, packet) < 0) {
         return ERR_CANT_CREATE;
     }
 
@@ -566,6 +566,7 @@ YNetTransport::State YNetEnet::get_state() const {
 YNetTransport::State YNetEnet::get_current_state() const {
     return status;
 }
+
 void YNetEnet::set_current_state(State val) {
     if (status != val) {
         status = val;
@@ -598,6 +599,13 @@ void YNetEnet::set_current_state(State val) {
 
 bool YNetEnet::has_packet() const {
     return !unhandled_packets.is_empty();
+}
+
+int YNetEnet::get_available_packet_count() const {
+    if (!peer || get_state() != STATE_OPEN) {
+        return 0;
+    }
+    return unhandled_packets.size();
 }
 
 int YNetEnet::get_packet_peer() const {

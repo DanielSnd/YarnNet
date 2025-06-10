@@ -428,6 +428,13 @@ bool YNetSocketIO::has_packet() const {
     return !unhandled_packets.is_empty();
 }
 
+int YNetSocketIO::get_available_packet_count() const {
+    if (!client.is_valid()) {
+        return 0;
+    }
+    return unhandled_packets.size();
+}
+
 int YNetSocketIO::get_packet_peer() const {
     if (!client.is_valid()) {
         return 1;

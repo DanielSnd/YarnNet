@@ -31,6 +31,7 @@ public:
     virtual Error send_packet(const uint8_t *p_data, int p_size) = 0;
     virtual State get_state() const = 0;
     virtual bool has_packet() const = 0;
+	virtual int get_available_packet_count() const { return 0; }
     virtual Error get_packet(const uint8_t **r_packet, int &r_packet_size) = 0;
     virtual void set_max_queued_packets(int p_max_queued_packets) = 0;
     virtual int get_max_queued_packets() const = 0;

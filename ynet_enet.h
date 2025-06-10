@@ -22,6 +22,7 @@ public:
     virtual Error send_packet(const uint8_t* p_data, int p_size) override;
     virtual State get_state() const override;
     virtual bool has_packet() const override;
+    virtual int get_available_packet_count() const override;
     virtual int get_packet_peer() const override;
     virtual Error get_packet(const uint8_t** r_packet, int& r_packet_size) override;
     virtual uint32_t string_to_hash_id(const String &p_string) override;

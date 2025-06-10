@@ -59,7 +59,7 @@ int YnetMultiplayerPeer::get_available_packet_count() const {
     if (!ynet->transport.is_valid()) {
         return 0;
     }
-    return ynet->transport->has_packet() ? 1 : 0;
+    return ynet->transport->get_available_packet_count();
 }
 
 Error YnetMultiplayerPeer::get_packet(const uint8_t **r_buffer, int &r_buffer_size) {
