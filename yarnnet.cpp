@@ -85,6 +85,10 @@ void YNet::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_server_time"), &YNet::get_server_time);
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "server_time"), "set_server_time", "get_server_time");
 
+    ClassDB::bind_method(D_METHOD("set_offline_mode", "status"), &YNet::set_offline_mode, DEFVAL(false));
+    ClassDB::bind_method(D_METHOD("get_offline_mode"), &YNet::get_offline_mode);
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "offline_mode"), "set_offline_mode", "get_offline_mode");
+
     ClassDB::bind_method(D_METHOD("get_new_network_id"), &YNet::get_new_network_id);
 
     ClassDB::bind_method(D_METHOD("create_room"), &YNet::create_room);
