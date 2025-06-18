@@ -270,6 +270,10 @@ public:
     bool get_pause_receive_spawns() const {return pause_receive_spawns;}
     void set_pause_receive_spawns(bool val) {pause_receive_spawns = val;}
     
+    void set_server_time_tracking(bool val) {server_time_tracking = val;}
+    bool get_server_time_tracking() const {return server_time_tracking;}
+    bool server_time_tracking = true;
+    
     bool is_host = false;
     bool get_is_host() const {return is_host;}
     void set_is_host(bool val) {}

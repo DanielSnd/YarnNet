@@ -378,7 +378,9 @@ Error YNetEnet::send_packet(const uint8_t *p_data, int p_size) {
     }
     msg->packetData.resize(p_size);
     msg->channel = YNet::get_singleton()->get_transfer_channel();
-    msg->reliability = YNet::get_singleton()->get_transfer_mode();
+    auto reliability = YNet::get_singleton()->get_transfer_mode();
+    msg->reliability = (reliability == MultiplayerPeer::TransferMode::TRANSFER_MODE_RELIABLE) ? 
+                ENetPacketPeer::FLAG_RELIABLE : ENetPacketPeer::FLAG_UNSEQUENCED;
     memcpy(msg->packetData.ptrw(), p_data, p_size);
     PackedByteArray serialized = msg->serialize();
     

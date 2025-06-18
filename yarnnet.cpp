@@ -80,6 +80,9 @@ void YNet::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_protocol"), &YNet::get_protocol);
     ADD_PROPERTY(PropertyInfo(Variant::STRING, "protocol"), "set_protocol", "get_protocol");
 
+    ClassDB::bind_method(D_METHOD("set_server_time_tracking", "status"), &YNet::set_server_time_tracking, DEFVAL(false));
+    ClassDB::bind_method(D_METHOD("get_server_time_tracking"), &YNet::get_server_time_tracking);
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "server_time_tracking"), "set_server_time_tracking", "get_server_time_tracking");
 
     ClassDB::bind_method(D_METHOD("set_server_time", "server_time"), &YNet::set_server_time);
     ClassDB::bind_method(D_METHOD("get_server_time"), &YNet::get_server_time);
@@ -1242,47 +1245,48 @@ void YNet::_notification(int p_what) {
             }
             if (room_id.is_empty())
                 return;
-
-               float delta = get_process_delta_time();
-                if (!has_synced_time) {
-                    // Before first sync, just increment normally
-                    server_time += delta;
-                } else {
-                    // After sync, we should maintain the synchronized time
-                    if (is_adjusting_time) {
-                        float current_local_time = OS::get_singleton()->get_ticks_msec() / 1000.0f;
-                        float expected_server_time = current_local_time + target_time_offset;
-                        float time_difference = expected_server_time - server_time;
-                        
-                        // If we're close enough, stop adjusting
-                        if (Math::abs(time_difference) < 0.01f) {
-                            is_adjusting_time = false;
-                            time_offset = target_time_offset;
-                        } else {
-                            // Calculate adjustment factor
-                            float adjustment_factor = 1.0f;
-                            if (time_difference > 0) {
-                                // We're behind, speed up
-                                adjustment_factor = 1.0f + (time_difference * time_adjustment_rate);
-                                adjustment_factor = MIN(adjustment_factor, 2.0f);
-                            } else {
-                                // We're ahead, slow down
-                                adjustment_factor = 1.0f + (time_difference * time_adjustment_rate);
-                                adjustment_factor = MAX(adjustment_factor, 0.1f);
-                            }
-                            
-                            server_time += delta * adjustment_factor;
-                        }
-                    } else {
-                        // Normal progression after sync - just add delta
+            if (server_time_tracking) {
+                float delta = get_process_delta_time();
+                    if (!has_synced_time) {
+                        // Before first sync, just increment normally
                         server_time += delta;
+                    } else {
+                        // After sync, we should maintain the synchronized time
+                        if (is_adjusting_time) {
+                            float current_local_time = OS::get_singleton()->get_ticks_msec() / 1000.0f;
+                            float expected_server_time = current_local_time + target_time_offset;
+                            float time_difference = expected_server_time - server_time;
+                            
+                            // If we're close enough, stop adjusting
+                            if (Math::abs(time_difference) < 0.01f) {
+                                is_adjusting_time = false;
+                                time_offset = target_time_offset;
+                            } else {
+                                // Calculate adjustment factor
+                                float adjustment_factor = 1.0f;
+                                if (time_difference > 0) {
+                                    // We're behind, speed up
+                                    adjustment_factor = 1.0f + (time_difference * time_adjustment_rate);
+                                    adjustment_factor = MIN(adjustment_factor, 2.0f);
+                                } else {
+                                    // We're ahead, slow down
+                                    adjustment_factor = 1.0f + (time_difference * time_adjustment_rate);
+                                    adjustment_factor = MAX(adjustment_factor, 0.1f);
+                                }
+                                
+                                server_time += delta * adjustment_factor;
+                            }
+                        } else {
+                            // Normal progression after sync - just add delta
+                            server_time += delta;
+                        }
                     }
+                // Periodically sync time with server
+                float current_time = OS::get_singleton()->get_ticks_msec() / 1000.0f;
+                if (current_time - last_time_sync >= time_sync_interval) {
+                    _send_time_sync_request();
+                    last_time_sync = current_time;
                 }
-            // Periodically sync time with server
-            float current_time = OS::get_singleton()->get_ticks_msec() / 1000.0f;
-            if (current_time - last_time_sync >= time_sync_interval) {
-                _send_time_sync_request();
-                last_time_sync = current_time;
             }
         } break;
         default:
