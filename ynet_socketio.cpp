@@ -23,7 +23,7 @@ void YNetSocketIO::clear_unhandled_packets() {
 
 YNetSocketIO::~YNetSocketIO() {
     if (client.is_valid()) {
-        client.unref();
+        client = nullptr;
     }
     
     if (current_packet.data != nullptr) {
@@ -56,7 +56,7 @@ bool YNetSocketIO::socketio_parse_packet(String& payload) {
         payload = payload.substr(regex_match->get_end(0));
         ERR_PRINT("[YNet] Binary data payload not supported! "+regex_match->get_string(1));
     }
-    regex_match.unref();
+    regex_match = nullptr;
 
 
     regex->compile("(\\w),");
@@ -65,7 +65,7 @@ bool YNetSocketIO::socketio_parse_packet(String& payload) {
         payload = payload.substr(regex_match->get_end(0));
         name_space = regex_match->get_string(1);
     }
-    regex_match.unref();
+    regex_match = nullptr;
 
     regex->compile("(\\d+)");
     regex_match = regex->search(payload);
@@ -73,7 +73,7 @@ bool YNetSocketIO::socketio_parse_packet(String& payload) {
         payload = payload.substr(regex_match->get_end(0));
         WARN_PRINT("[YNet] Ignoring acknowledgement ID "+regex_match->get_string(1));
     }
-    regex_match.unref();
+    regex_match = nullptr;
 
     Variant _data {};
     if(payload.length() > 0) {

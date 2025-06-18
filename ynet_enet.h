@@ -59,8 +59,8 @@ public:
     ~YNetEnet();
 
 private:
-    ENetHost* client;
-    ENetPeer* peer;
+    Ref<ENetConnection> connection;
+    Ref<ENetPacketPeer> peer;
     String server_address;
     uint16_t server_port;
     int debugging;

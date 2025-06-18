@@ -255,14 +255,6 @@ public:
         room_id = val + protocol;
     }
 
-    int pingTimeout = 0;
-    int get_ping_timeout() const {return pingTimeout;}
-    void set_ping_timeout(int val) {pingTimeout = val;}
-
-    int pingInterval = 0;
-    int get_ping_interval() const {return pingInterval;}
-    void set_ping_interval(int val) {pingInterval = val;}
-
     DebuggingLevel debugging = NONE;
     DebuggingLevel get_debugging() const {return debugging;}
     void set_debugging(DebuggingLevel val) {debugging = val;}

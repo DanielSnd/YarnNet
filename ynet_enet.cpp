@@ -5,16 +5,12 @@ void YNetEnet::_bind_methods() {
 }
 
 YNetEnet::YNetEnet() {
-    client = nullptr;
+    connection = Ref<ENetConnection>();
+    connection.instantiate();
     peer = nullptr;
     status = STATE_CLOSED;
     debugging = YNet::get_singleton()->debugging;
     
-    if (enet_initialize() != 0) {
-        ERR_PRINT("[YNet] Failed to initialize ENet transport");
-        return;
-    }
-
     if (debugging >= YNet::DebuggingLevel::MINIMAL) {
         print_line("[YNet] ENet transport initialized successfully");
     }
@@ -30,7 +26,7 @@ YNetEnet::~YNetEnet() {
     
     connections_map.clear();
     clear_unhandled_packets();
-    // enet_deinitialize();
+    connection = Ref<ENetConnection>();
 }
 
 String YNetEnet::MessageTypeToString(uint8_t type) {
@@ -96,84 +92,59 @@ Error YNetEnet::connect_to(const String &p_url) {
         port = parts[1].to_int();
     }
 
-    if (client != nullptr) {
+    if (peer.is_valid()) {
         YNet::get_singleton()->emit_signal(SNAME("connected"),"FAILURE ALREADY CONNECTED",false);
         ERR_PRINT("[YNet] Tried to connect while already connected");
         transport_disconnect();
     }
 
-
     // Create client host
-    client = enet_host_create(nullptr, 1, 2, 0, 0);
-    if (client == nullptr) {
+    Error err = connection->create_host(1, 2);
+    if (err != OK) {
         YNet::get_singleton()->emit_signal(SNAME("connected"),"FAILURE",false);
         ERR_PRINT("[YNet] Failed to create ENet client host");
-        return ERR_CANT_CREATE;
+        return err;
     }
 
     // Enable compression
-    if (enet_host_compress_with_range_coder(client) < 0) {
-        YNet::get_singleton()->emit_signal(SNAME("connected"),"FAILURE",false);
-        ERR_PRINT("[YNet] Failed to enable range coder compression");
-        transport_disconnect();
-        return ERR_CANT_CREATE;
-    }
+    connection->compress(ENetConnection::COMPRESS_RANGE_CODER);
 
-    // Set up server address
-    ENetAddress enet_address;
-    enet_address.port = port;
+    Ref<ENetPacketPeer> temp_peer = connection->connect_to_host(address, port, 2, YNet::get_singleton()->protocol_hash);
     
-    if (enet_address_set_host(&enet_address, address.utf8().get_data()) != 0) {
-        YNet::get_singleton()->emit_signal(SNAME("connected"),"FAILURE",false);
-        ERR_PRINT("[YNet] Failed to resolve host address");
-        transport_disconnect();
-        return ERR_CANT_RESOLVE;
-    }
-
-    // Attempt connection
-    peer = enet_host_connect(client, &enet_address, 2, YNet::get_singleton()->protocol_hash);
-    if (peer == nullptr) {
+    if (temp_peer.is_null() ||!temp_peer.is_valid()) {
         YNet::get_singleton()->emit_signal(SNAME("connected"),"FAILURE",false);
         ERR_PRINT("[YNet] Failed to initiate ENet connection");
-        transport_disconnect();
+        connection->destroy();
+        connection = Ref<ENetConnection>();
         return ERR_CANT_CONNECT;
     }
+    
+    peer = temp_peer;
+    peer->ping_interval(2000); // Send ping every 2 seconds
+    peer->set_timeout(32, 10000, 30000);
 
+    // Configure ping and timeout settings for better compatibility with raw ENet servers
     set_current_state(STATE_CONNECTING);
+
     YNet::get_singleton()->set_process(true);
 
-    if (debugging >= YNet::DebuggingLevel::MINIMAL) {
+    // if (debugging >= YNet::DebuggingLevel::MINIMAL) {
         print_line("[YNet] Initiating connection to ", address, ":", port);
-    }
+    // }
 
     return OK;
 }
 
 void YNetEnet::transport_disconnect() {
-    if (peer != nullptr) {
-        enet_peer_disconnect(peer, 0);
-        
-        // Wait for disconnect event
-        ENetEvent event;
-        while (enet_host_service(client, &event, 3000) > 0) {
-            if (event.type == ENET_EVENT_TYPE_DISCONNECT) {
-                if (debugging >= YNet::DebuggingLevel::MINIMAL) {
-                    print_line("[YNet] Disconnection succeeded");
-                }
-                break;
-            }
-            
-            if (event.type == ENET_EVENT_TYPE_RECEIVE) {
-                enet_packet_destroy(event.packet);
-            }
-        }
-        
-        peer = nullptr;
+    if (peer.is_valid()) {
+        peer->peer_disconnect(0);
+        peer = Ref<ENetPacketPeer>();
     }
 
-    if (client != nullptr) {
-        enet_host_destroy(client);
-        client = nullptr;
+    if (connection.is_valid()) {
+        connection->flush();
+        connection->destroy();
+        connection = Ref<ENetConnection>();
     }
 
     set_current_state(STATE_CLOSED);
@@ -181,7 +152,9 @@ void YNetEnet::transport_disconnect() {
 }
 
 void YNetEnet::transport_process(YNet* ynet) {
-    if (client == nullptr) return;
+    if (!connection.is_valid()) {
+        return;
+    }
 
     if (status == STATE_CONNECTING) {
         const float current_time = OS::get_singleton()->get_ticks_msec() * 0.001f;
@@ -193,27 +166,31 @@ void YNetEnet::transport_process(YNet* ynet) {
         }
     }
 
-    ENetEvent event;
-    while (enet_host_service(client, &event, 0) > 0) {
-        switch (event.type) {
-            case ENET_EVENT_TYPE_CONNECT: {
+    ENetConnection::Event event;
+    ENetConnection::EventType ret = connection->service(0, event);
+    
+    do {
+        switch (ret) {
+            case ENetConnection::EVENT_CONNECT: {
                 if (debugging >= YNet::DebuggingLevel::MINIMAL) {
                     print_line("[YNet] Connection established, pending receiving SID");
                 }
+                // Don't set peer again - we already have it from connect_to_host
+                set_current_state(STATE_OPEN);
             } break;
 
-            case ENET_EVENT_TYPE_RECEIVE: {
+            case ENetConnection::EVENT_RECEIVE: {
                 // Handle the message
-                handle_received_message(event.packet->data, event.packet->dataLength);
-                
-                enet_packet_destroy(event.packet);
+                if (event.packet != nullptr) {
+                    handle_received_message(event.packet->data, event.packet->dataLength);
+                }
             } break;
 
-            case ENET_EVENT_TYPE_DISCONNECT: {
+            case ENetConnection::EVENT_DISCONNECT: {
                 if (debugging >= YNet::DebuggingLevel::MINIMAL) {
                     print_line("[YNet] Disconnected from server");
                 }
-                peer = nullptr;
+                peer = Ref<ENetPacketPeer>();
                 if (status == STATE_CONNECTING) {
                     YNet::get_singleton()->emit_signal(SNAME("connected"),"CONNECTION CLOSED BY SERVER",false);
                 }
@@ -221,25 +198,42 @@ void YNetEnet::transport_process(YNet* ynet) {
                 YNet::get_singleton()->emit_signal(SNAME("disconnected"), "", "Connection closed by server");
             } break;
 
-            case ENET_EVENT_TYPE_NONE: {
+            case ENetConnection::EVENT_ERROR: {
+                if (debugging >= YNet::DebuggingLevel::MINIMAL) {
+                    print_line("[YNet] Connection error occurred");
+                }
+                if (status == STATE_CONNECTING) {
+                    YNet::get_singleton()->emit_signal(SNAME("connected"),"CONNECTION ERROR",false);
+                }
+                set_current_state(STATE_CLOSED);
             } break;
 
+            case ENetConnection::EVENT_NONE: {
+            } break;
         }
-    }
+    } while (connection.is_valid() && connection->check_events(ret, event) > 0);
 
     if (get_current_state() == STATE_OPEN) {
         YNet::get_singleton()->update_networked_property_syncers();
     }
 }
+
 void YNetEnet::send_message(Ref<YNetMessage> p_message) {
-    if (!peer || get_state() != STATE_OPEN) return;
+    if (!peer.is_valid() || get_state() != STATE_OPEN) return;
     PackedByteArray serialized = p_message->serialize();
+    
+    // Create ENet packet with reliable flag
     ENetPacket *packet = enet_packet_create(
         serialized.ptr(),
         serialized.size(),
-        ENET_PACKET_FLAG_RELIABLE
+        ENetPacketPeer::FLAG_RELIABLE
     );
-    enet_peer_send(peer, 0, packet);
+    
+    int err = peer->send(0, packet);
+    connection->flush();
+    if (err < 0) {
+        ERR_PRINT("[YNet] Failed to send message");
+    }
 }
 
 void YNetEnet::handle_received_message(const uint8_t* data, size_t dataLength) {
@@ -368,7 +362,7 @@ uint32_t YNetEnet::string_to_hash_id(const String &p_string) {
     return p_string.to_int();
 }
 Error YNetEnet::send_packet(const uint8_t *p_data, int p_size) {
-    if (!peer || get_state() != STATE_OPEN) {
+    if (!peer.is_valid() || get_state() != STATE_OPEN) {
         return ERR_UNCONFIGURED;
     }
 
@@ -387,13 +381,20 @@ Error YNetEnet::send_packet(const uint8_t *p_data, int p_size) {
     msg->reliability = YNet::get_singleton()->get_transfer_mode();
     memcpy(msg->packetData.ptrw(), p_data, p_size);
     PackedByteArray serialized = msg->serialize();
+    
+    // Create ENet packet with appropriate flags
+    int flags = (msg->reliability == MultiplayerPeer::TransferMode::TRANSFER_MODE_RELIABLE) ? 
+                ENetPacketPeer::FLAG_RELIABLE : ENetPacketPeer::FLAG_UNSEQUENCED;
+    
     ENetPacket *packet = enet_packet_create(
         serialized.ptr(),
         serialized.size(),
-        msg->reliability == MultiplayerPeer::TransferMode::TRANSFER_MODE_RELIABLE ? ENET_PACKET_FLAG_RELIABLE : ENET_PACKET_FLAG_UNSEQUENCED
+        flags
     );
-
-    if (enet_peer_send(peer, msg->channel, packet) < 0) {
+    
+    int err = peer->send(msg->channel, packet);
+    connection->flush();
+    if (err < 0) {
         return ERR_CANT_CREATE;
     }
 
@@ -560,6 +561,9 @@ YNetTransport::State YNetEnet::get_state() const {
     if (YNet::get_singleton()->get_offline_mode()) {
         return STATE_OPEN;
     }
+    if (peer.is_valid() && peer->get_state() == ENetPacketPeer::STATE_CONNECTED) {
+        return STATE_OPEN;
+    }
     return status;
 }
 
@@ -602,7 +606,7 @@ bool YNetEnet::has_packet() const {
 }
 
 int YNetEnet::get_available_packet_count() const {
-    if (!peer || get_state() != STATE_OPEN) {
+    if (!peer.is_valid() || get_state() != STATE_OPEN) {
         return 0;
     }
     return unhandled_packets.size();
