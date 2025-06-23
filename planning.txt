@@ -1,4 +1,4 @@
-YnetMultiplayerPeer
+YNetMultiplayerPeer
 https://docs.godotengine.org/en/stable/classes/class_multiplayerpeer.html#class-multiplayerpeer
 
 YnetPacketPeer

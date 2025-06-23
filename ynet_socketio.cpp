@@ -92,15 +92,15 @@ bool YNetSocketIO::socketio_parse_packet(String& payload) {
                 YNet::get_singleton()->sid = sid;
                 YNet::get_singleton()->hashed_sid = static_cast<int>(string_to_hash_id(sid));
                 YNet::get_singleton()->real_hashed_sid = YNet::get_singleton()->hashed_sid;
-                YNet::get_singleton()->emit_signal(SNAME("connected"),name_space,true);
+                YNet::get_singleton()->transport_connected_successfully();
             } else {
-                YNet::get_singleton()->emit_signal(SNAME("connected"),name_space,false);
+                YNet::get_singleton()->emit_signal(SNAME("connection_result"),false);
                 socketio_disconnect();
             }
         }
             break;
         case SocketIOPacketType::CONNECT_ERROR:
-            {YNet::get_singleton()->emit_signal(SNAME("connected"),name_space,false);}
+            {YNet::get_singleton()->emit_signal(SNAME("connection_result"),false);}
             break;
         case SocketIOPacketType::EVENT: {
             ERR_FAIL_COND_V_MSG(_data.is_array() != true, false, vformat("[YNet] Invalid socketio event format %s",_data.to_json_string()));
@@ -244,7 +244,8 @@ void YNetSocketIO::transport_process(YNet* ynet) {
         const float current_time = OS::get_singleton()->get_ticks_msec() * 0.001f;
         if (current_time > tick_started_connecting + 6.0f) {
             was_timeout=true;
-            YNet::get_singleton()->emit_signal(SNAME("connected"),"TIMEOUT",false);
+            YNet::get_singleton()->last_error_message = "TIMEOUT";
+            YNet::get_singleton()->emit_signal(SNAME("connection_result"),false);
             socketio_disconnect();
             return;
         }
@@ -357,8 +358,9 @@ Error YNetSocketIO::connect_to(const String &p_url) {
 
     if (err != OK) {
         set_current_state(State::STATE_CLOSED);
-        print_line("ERROR! ", err);
-        YNet::get_singleton()->emit_signal(SNAME("connected"),"",false);
+        YNet::get_singleton()->last_error_message = vformat("CONNECTION ERROR %d", err);
+        print_line("ERROR! ", YNet::get_singleton()->last_error_message); 
+        YNet::get_singleton()->emit_signal(SNAME("connection_result"),false);
         return err;
     }
     
@@ -366,7 +368,7 @@ Error YNetSocketIO::connect_to(const String &p_url) {
 
     YNet::get_singleton()->set_process(true);
 
-    return err;
+        return err;
 }
 
 void YNetSocketIO::transport_disconnect() {

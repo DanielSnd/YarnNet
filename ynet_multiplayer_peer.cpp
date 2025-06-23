@@ -10,11 +10,11 @@
 #include "modules/multiplayer/scene_multiplayer.h"
 #include "scene/main/multiplayer_api.h"
 
-void YnetMultiplayerPeer::_bind_methods() {
-    ClassDB::bind_method(D_METHOD("get_string_id", "int_id"), &YnetMultiplayerPeer::get_string_id);
+void YNetMultiplayerPeer::_bind_methods() {
+    ClassDB::bind_method(D_METHOD("get_string_id", "int_id"), &YNetMultiplayerPeer::get_string_id);
 }
 
-void YnetMultiplayerPeer::set_target_peer(int p_target_peer) {
+void YNetMultiplayerPeer::set_target_peer(int p_target_peer) {
     target_peer = p_target_peer;
     // print_line(vformat("Sending to target peer %d. My peer id %d",p_target_peer,ynet->hashed_sid));
     if (target_peer == ynet->host_id_hashed)
@@ -22,47 +22,47 @@ void YnetMultiplayerPeer::set_target_peer(int p_target_peer) {
     ynet->_target_peer = p_target_peer;
 }
 
-int YnetMultiplayerPeer::get_packet_peer() const {
+int YNetMultiplayerPeer::get_packet_peer() const {
     if (!ynet->transport.is_valid()) {
         return 1;
     }
     return ynet->transport->get_packet_peer();
 }
 
-int YnetMultiplayerPeer::get_unique_id() const {
+int YNetMultiplayerPeer::get_unique_id() const {
     return ynet->is_host ? 1 : ynet->hashed_sid;
 }
 
-bool YnetMultiplayerPeer::is_server() const {
+bool YNetMultiplayerPeer::is_server() const {
     return ynet->is_host;
 }
 
-void YnetMultiplayerPeer::close() {
+void YNetMultiplayerPeer::close() {
     if (ynet->transport.is_valid()) {
         ynet->transport->transport_disconnect();
     }
 }
 
-void YnetMultiplayerPeer::disconnect_peer(int p_peer, bool p_force) {
+void YNetMultiplayerPeer::disconnect_peer(int p_peer, bool p_force) {
     if (ynet->transport.is_valid()) {
         ynet->transport->kick_peer(get_string_id(p_peer), p_force);
     }
 }
 
-void YnetMultiplayerPeer::poll() {
+void YNetMultiplayerPeer::poll() {
     // if (ynet != nullptr && ynet->transport.is_valid()) {
     //     ynet->transport->poll();
     // }
 }
 
-int YnetMultiplayerPeer::get_available_packet_count() const {
+int YNetMultiplayerPeer::get_available_packet_count() const {
     if (!ynet->transport.is_valid()) {
         return 0;
     }
     return ynet->transport->get_available_packet_count();
 }
 
-Error YnetMultiplayerPeer::get_packet(const uint8_t **r_buffer, int &r_buffer_size) {
+Error YNetMultiplayerPeer::get_packet(const uint8_t **r_buffer, int &r_buffer_size) {
     ERR_FAIL_COND_V(get_connection_status() != CONNECTION_CONNECTED, ERR_UNCONFIGURED);
     if (ynet->transport.is_valid()) {
         return ynet->transport->get_packet(r_buffer, r_buffer_size);
@@ -70,7 +70,7 @@ Error YnetMultiplayerPeer::get_packet(const uint8_t **r_buffer, int &r_buffer_si
     return OK;
 }
 
-Error YnetMultiplayerPeer::put_packet(const uint8_t *p_buffer, int p_buffer_size) {
+Error YNetMultiplayerPeer::put_packet(const uint8_t *p_buffer, int p_buffer_size) {
     if (ynet->transport.is_valid()) {
         if (is_server()) {
             if (target_peer > 0) {
@@ -93,15 +93,15 @@ Error YnetMultiplayerPeer::put_packet(const uint8_t *p_buffer, int p_buffer_size
     return ERR_UNCONFIGURED;
 }
 
-void YnetMultiplayerPeer::set_transfer_channel(int p_channel) {
+void YNetMultiplayerPeer::set_transfer_channel(int p_channel) {
     MultiplayerPeer::set_transfer_channel(p_channel);
 }
 
-int YnetMultiplayerPeer::get_transfer_channel() const {
+int YNetMultiplayerPeer::get_transfer_channel() const {
     return MultiplayerPeer::get_transfer_channel();
 }
 
-MultiplayerPeer::ConnectionStatus YnetMultiplayerPeer::get_connection_status() const {
+MultiplayerPeer::ConnectionStatus YNetMultiplayerPeer::get_connection_status() const {
     if (!ynet->transport.is_valid()) {
         return CONNECTION_DISCONNECTED;
     }
@@ -120,39 +120,41 @@ MultiplayerPeer::ConnectionStatus YnetMultiplayerPeer::get_connection_status() c
 }
 
 
-int YnetMultiplayerPeer::get_max_packet_size() const {
+int YNetMultiplayerPeer::get_max_packet_size() const {
     if (!ynet->transport.is_valid()) {
         return ynet->transport->get_max_packet_size();
     }
     return 65535; // ENet default max packet size
 }
 
-void YnetMultiplayerPeer::_clear() {
+void YNetMultiplayerPeer::_clear() {
     connection_status = CONNECTION_DISCONNECTED;
     peers_map.clear();
 }
 
-void YnetMultiplayerPeer::set_transfer_mode(TransferMode p_mode) {
+void YNetMultiplayerPeer::set_transfer_mode(TransferMode p_mode) {
     MultiplayerPeer::set_transfer_mode(p_mode);
 }
 
-MultiplayerPeer::TransferMode YnetMultiplayerPeer::get_transfer_mode() const {
+MultiplayerPeer::TransferMode YNetMultiplayerPeer::get_transfer_mode() const {
     return MultiplayerPeer::get_transfer_mode();
 }
 
-void YnetMultiplayerPeer::set_refuse_new_connections(bool p_enable) {
+void YNetMultiplayerPeer::set_refuse_new_connections(bool p_enable) {
     MultiplayerPeer::set_refuse_new_connections(p_enable);
 }
 
-bool YnetMultiplayerPeer::is_refusing_new_connections() const {
+bool YNetMultiplayerPeer::is_refusing_new_connections() const {
     return MultiplayerPeer::is_refusing_new_connections();
 }
 
-void YnetMultiplayerPeer::on_player_joined(const String &p_player) {
+void YNetMultiplayerPeer::on_player_joined(const String &p_player) {
     if (ynet->sid == p_player) return;
-    print_line("Attempting to do on player joined on client ",ynet->sid," player that joined in theory is ",p_player," has in map? ",ynet->transport->connections_map.has(p_player));
-    if (ynet->transport->connections_map.has(p_player)) {
-        int peer_id = ynet->transport->connections_map[p_player];
+    
+    bool connection_map_has_player = ynet->transport->connections_map.has(p_player);
+    int peer_id = -1;
+    if (connection_map_has_player) {
+        peer_id = ynet->transport->connections_map[p_player];
         if (p_player == ynet->host_id) {
             peer_id = 1;
             ynet->transport->connections_map[p_player] = 1;
@@ -162,13 +164,20 @@ void YnetMultiplayerPeer::on_player_joined(const String &p_player) {
 
             // If server is going to sync this to others because server relay is enabled,
             // then only emit this if the new player is server or if I'm server.
-            if (peer_id == 1 || get_unique_id() == 1)
-                emit_signal(SNAME("peer_connected"), peer_id);
+            if (peer_id == 1 || get_unique_id() == 1) {
+                    emit_signal(SNAME("peer_connected"), peer_id);
+            }
         }
+    }
+    if (ynet->debugging > 1) {
+        print_line(vformat("[YNetMultiplayerPeer] Attempting to do on player joined on %s sid %s. Had in the connection map? %s Peer id %d", p_player == ynet->host_id ? "Server" : "Client", ynet->sid, connection_map_has_player, peer_id));
+    }
+    if (peer_id == -1) {
+        ERR_PRINT(vformat("[YNetMultiplayerPeer] Peer id is -1. This should not happen. Peer id %d SID %s", peer_id, p_player));
     }
 }
 
-void YnetMultiplayerPeer::on_player_left(const String &p_player) {
+void YNetMultiplayerPeer::on_player_left(const String &p_player) {
     if (ynet->sid == p_player) return;
     Vector<int> remove_ints;
     for (auto key_value: peers_map) {
@@ -187,20 +196,22 @@ void YnetMultiplayerPeer::on_player_left(const String &p_player) {
     }
 }
 
-void YnetMultiplayerPeer::on_room_connected(const int &p_player) {
+void YNetMultiplayerPeer::on_room_connected(const int &p_player) {
     on_player_joined(ynet->sid);
 }
 
-void YnetMultiplayerPeer::on_room_disconnected(const int &p_player) {
+void YNetMultiplayerPeer::on_room_disconnected(const int &p_player) {
     on_player_left(ynet->sid);
 }
 
-void YnetMultiplayerPeer::on_multiplayer_api_peer_connected(const int &peer_id) {
-    print_line("on_multiplayer_api_peer_connected id ",peer_id);
+void YNetMultiplayerPeer::on_multiplayer_api_peer_connected(const int &peer_id) {
+    if (YNet::get_singleton()->get_debugging() > 1) {
+        print_line("on_multiplayer_api_peer_connected id ",peer_id);
+    }
 }
 
 // #ifdef HOST_MIGRATION
-// void YnetMultiplayerPeer::on_host_migration(const String &p_new_host) {
+// void YNetMultiplayerPeer::on_host_migration(const String &p_new_host) {
 //     int previous_hashed_for_new_host = ynet->string_to_hash_id(p_new_host);
 
 //     Vector<int> remove_ints;
@@ -270,7 +281,7 @@ void YnetMultiplayerPeer::on_multiplayer_api_peer_connected(const int &peer_id) 
 // }
 // #endif
 
-String YnetMultiplayerPeer::get_string_id(int _int_id) const {
+String YNetMultiplayerPeer::get_string_id(int _int_id) const {
     if (peers_map.has(_int_id)) {
         return peers_map[_int_id];
     }
@@ -282,19 +293,19 @@ String YnetMultiplayerPeer::get_string_id(int _int_id) const {
     return vformat("%d",_int_id);
 }
 
-YnetMultiplayerPeer::YnetMultiplayerPeer() {
+YNetMultiplayerPeer::YNetMultiplayerPeer() {
     if (Engine::get_singleton()->is_editor_hint()) return;
     ynet = YNet::get_singleton();
-    ynet->connect(SNAME("room_connected"),callable_mp(this,&YnetMultiplayerPeer::on_room_connected));
-    ynet->connect(SNAME("room_disconnected"),callable_mp(this,&YnetMultiplayerPeer::on_room_disconnected));
-    ynet->connect(SNAME("player_joined"),callable_mp(this,&YnetMultiplayerPeer::on_player_joined));
-    ynet->connect(SNAME("player_left"),callable_mp(this,&YnetMultiplayerPeer::on_player_left));
+    ynet->connect(SNAME("room_connected"),callable_mp(this,&YNetMultiplayerPeer::on_room_connected));
+    ynet->connect(SNAME("room_disconnected"),callable_mp(this,&YNetMultiplayerPeer::on_room_disconnected));
+    ynet->connect(SNAME("player_joined"),callable_mp(this,&YNetMultiplayerPeer::on_player_joined));
+    ynet->connect(SNAME("player_left"),callable_mp(this,&YNetMultiplayerPeer::on_player_left));
 // #ifdef HOST_MIGRATION
-//     ynet->connect(SNAME("host_migration"),callable_mp(this,&YnetMultiplayerPeer::on_host_migration));
+//     ynet->connect(SNAME("host_migration"),callable_mp(this,&YNetMultiplayerPeer::on_host_migration));
 // #endif
 }
 
-YnetMultiplayerPeer::~YnetMultiplayerPeer() {
+YNetMultiplayerPeer::~YNetMultiplayerPeer() {
     ynet = nullptr;
     _clear();
 }

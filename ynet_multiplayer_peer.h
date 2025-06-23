@@ -15,8 +15,8 @@
 
 class YNet;
 
-class YnetMultiplayerPeer : public MultiplayerPeer {
-	GDCLASS(YnetMultiplayerPeer, MultiplayerPeer);
+class YNetMultiplayerPeer : public MultiplayerPeer {
+	GDCLASS(YNetMultiplayerPeer, MultiplayerPeer);
 
 private:
 
@@ -88,10 +88,10 @@ public:
 
 	String get_string_id(int _int_id) const;
 
-	YnetMultiplayerPeer();
+	YNetMultiplayerPeer();
 
 
-	~YnetMultiplayerPeer();
+	~YNetMultiplayerPeer();
 };
 
 

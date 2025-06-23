@@ -42,7 +42,7 @@ private:
 		bool call_local = false;
 		MultiplayerPeer::TransferMode transfer_mode = MultiplayerPeer::TRANSFER_MODE_RELIABLE;
 		int channel = 0;
-
+		bool buffered = false;
 		bool operator==(YNetRPCConfig const &p_other) const {
 			return name == p_other.name;
 		}
@@ -81,6 +81,15 @@ protected:
         bool cleanup_with_owner = false;
     };
 
+    struct BufferedYRPC {
+        uint32_t network_instance_id;
+        StringName method_name;
+        Variant args;
+        int remote_sender_id;
+    };
+
+    HashMap<uint32_t,HashMap<StringName,BufferedYRPC>> buffered_yrpcs;
+
     Variant _receive_yrpc(const Variant **p_args, int p_argcount, Callable::CallError &r_error);
     Variant _receive_yrpc_also_local(const Variant **p_args, int p_argcount, Callable::CallError &r_error);
 
@@ -98,7 +107,6 @@ protected:
 
     int count_to_check_should_spawn = 0;
 
-
     void _notification(int p_what);
 
     void spawned_network_node_exited_tree(uint32_t p_nid);
@@ -106,6 +114,7 @@ protected:
     void clear_all_spawned_network_nodes();
 
     void on_connected_to_server();
+    void connect_server_peer_signals();
 
     void on_received_peer_packet(int packet_from, const Vector<uint8_t> &packet_received);
 
@@ -157,10 +166,21 @@ public:
     Ref<YNetTransport> get_transport() const { return transport; }
 
     void remove_from_yrpc_receiving_map(uint32_t p_yrpc_id);
+    
+    void remove_buffered_yrpc(const Callable &p_callable);
+    void remove_buffered_yrpc_method(uint32_t p_network_id, const String &p_method);
 
     void update_networked_property_syncers();
     
     void attempt_despawn_nodes_from_peer_that_left(const uint32_t &p_peer_id);
+
+    void handle_buffered_yrpcs_on_ready(uint32_t p_network_id);
+
+    enum TransportType {
+        TRANSPORT_TYPE_NONE = 0,
+        TRANSPORT_TYPE_SOCKETIO = 1,
+        TRANSPORT_TYPE_ENET = 2
+    };
 
     enum DebuggingLevel {
         NONE = 0,
@@ -200,14 +220,13 @@ public:
     HashMap<uint32_t,String> spawnables_dictionary;
 
     void add_network_spawnable(const String& new_spawnable) {
-        spawnables_dictionary[string_to_hash_id(new_spawnable)] = new_spawnable;
+        spawnables_dictionary[get_network_spawnable_id(new_spawnable)] = new_spawnable;
     }
-
 
     Ref<PackedScene> find_network_spawnable(uint32_t new_spawnable_id);
 
     uint32_t get_network_spawnable_id(const String& new_spawnable) {
-        return string_to_hash_id(new_spawnable);
+        return string_to_hash_id(ResourceUID::ensure_path(new_spawnable));
     }
 
     bool is_network_spawnable(const String& new_spawnable) {
@@ -261,11 +280,25 @@ public:
 
     bool has_room() const {return !room_id.is_empty();}
 
+    void on_created_server();
+
     bool offline_mode = false;
     bool get_offline_mode() const {return offline_mode;}
     void set_offline_mode(bool val) {offline_mode = val;}
 
-    
+    String default_scene_instantiated_for_peers = "";
+    String default_scene_instantiated_for_host = "";
+    void set_default_scene_instantiated_for_peers(String val) {
+        default_scene_instantiated_for_peers = val;
+        spawnables_dictionary[get_network_spawnable_id(val)] = val;
+    }
+    void set_default_scene_instantiated_for_host(String val) {
+        default_scene_instantiated_for_host = val;
+        spawnables_dictionary[get_network_spawnable_id(val)] = val;
+    }
+    String get_default_scene_instantiated_for_peers() const {return default_scene_instantiated_for_peers;}
+    String get_default_scene_instantiated_for_host() const {return default_scene_instantiated_for_host;}
+
     bool pause_receive_spawns = false;
     bool get_pause_receive_spawns() const {return pause_receive_spawns;}
     void set_pause_receive_spawns(bool val) {pause_receive_spawns = val;}
@@ -306,7 +339,7 @@ public:
 
     void rpc_request_spawned_nodes(uint32_t id_requesting);
 
-    void rpc_respond_with_spawned_nodes(const Array &spawned_nodes_info);
+    void rpc_respond_with_spawned_nodes(const Array &spawned_nodes_info, const Dictionary &buffered_yrpcs_dct);
 
     void rpc_despawn(uint32_t p_network_id);
 
@@ -372,6 +405,12 @@ public:
 
     void on_player_left(const String &p_player);
 
+    void _on_peer_connected(int p_peer_id);
+
+    void _on_peer_disconnected(int p_peer_id);
+
+    void _on_server_disconnected();
+
 #ifdef HOST_MIGRATION
     void on_host_migrated(const String &p_new_host);
 #endif
@@ -386,10 +425,26 @@ public:
     static void set_debug_run_multiple_instances(bool val);
     static bool get_debug_run_multiple_instances();
 
-    void connect_to(const String &p_address);
+    YNet* connect_to(const String &p_address, const TransportType p_transport_type = TRANSPORT_TYPE_ENET);
+    YNet* connect_to_and_create_room(const String &p_address, const TransportType p_transport_type = TRANSPORT_TYPE_ENET);
+    YNet* connect_to_and_join_room(const String &p_address, const String &p_room_id = "", const TransportType p_transport_type = TRANSPORT_TYPE_ENET);
+    YNet* connect_to_and_join_room_with_password(const String &p_address, const String &p_room_code = "", const String &p_password = "", const TransportType p_transport_type = TRANSPORT_TYPE_ENET);
+
+    bool auto_cleanup_on_disconnect = true;
+    bool get_auto_cleanup_on_disconnect() const {return auto_cleanup_on_disconnect;}
+    void set_auto_cleanup_on_disconnect(bool val) {auto_cleanup_on_disconnect = val;}
+
+    bool pending_create_room_on_connect = false;
+    bool pending_join_room_on_connect = false;
+    String pending_join_room_code_on_connect = "";
+    String pending_join_room_password_on_connect = "";
+
+    void transport_connected_successfully();
 
     static uint32_t string_to_hash_id(const String &p_string);
 
+    String last_error_message = "";
+    String get_last_error_message() {return last_error_message;}
 
     int get_transfer_channel() const;
     int get_transfer_mode() const;
@@ -407,7 +462,7 @@ public:
             int usage = PROPERTY_USAGE_DEFAULT, bool restart_if_changed = false);
 
     void transport_disconnect();
-
+    String transport_state_as_string();
     // Time related methods
     float get_server_time() const;
     void set_server_time(float server_time) const;
@@ -417,4 +472,5 @@ public:
     void rpc_time_sync_response(float server_time, float rtt);
 };
 VARIANT_ENUM_CAST(YNet::DebuggingLevel);
+VARIANT_ENUM_CAST(YNet::TransportType);
 #endif

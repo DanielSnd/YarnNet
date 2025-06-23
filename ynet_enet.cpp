@@ -93,7 +93,8 @@ Error YNetEnet::connect_to(const String &p_url) {
     }
 
     if (peer.is_valid()) {
-        YNet::get_singleton()->emit_signal(SNAME("connected"),"FAILURE ALREADY CONNECTED",false);
+        YNet::get_singleton()->last_error_message = "FAILURE ALREADY CONNECTED";
+        YNet::get_singleton()->emit_signal(SNAME("connection_result"),false);
         ERR_PRINT("[YNet] Tried to connect while already connected");
         transport_disconnect();
     }
@@ -101,7 +102,8 @@ Error YNetEnet::connect_to(const String &p_url) {
     // Create client host
     Error err = connection->create_host(1, 2);
     if (err != OK) {
-        YNet::get_singleton()->emit_signal(SNAME("connected"),"FAILURE",false);
+        YNet::get_singleton()->last_error_message = "FAILURE";
+        YNet::get_singleton()->emit_signal(SNAME("connection_result"),false);
         ERR_PRINT("[YNet] Failed to create ENet client host");
         return err;
     }
@@ -112,7 +114,8 @@ Error YNetEnet::connect_to(const String &p_url) {
     Ref<ENetPacketPeer> temp_peer = connection->connect_to_host(address, port, 2, YNet::get_singleton()->protocol_hash);
     
     if (temp_peer.is_null() ||!temp_peer.is_valid()) {
-        YNet::get_singleton()->emit_signal(SNAME("connected"),"FAILURE",false);
+        YNet::get_singleton()->last_error_message = "FAILURE";
+        YNet::get_singleton()->emit_signal(SNAME("connection_result"),false);
         ERR_PRINT("[YNet] Failed to initiate ENet connection");
         connection->destroy();
         connection = Ref<ENetConnection>();
@@ -128,9 +131,9 @@ Error YNetEnet::connect_to(const String &p_url) {
 
     YNet::get_singleton()->set_process(true);
 
-    // if (debugging >= YNet::DebuggingLevel::MINIMAL) {
+    if (debugging >= YNet::DebuggingLevel::MINIMAL) {
         print_line("[YNet] Initiating connection to ", address, ":", port);
-    // }
+    }
 
     return OK;
 }
@@ -160,7 +163,8 @@ void YNetEnet::transport_process(YNet* ynet) {
         const float current_time = OS::get_singleton()->get_ticks_msec() * 0.001f;
         if (current_time > tick_started_connecting + 6.0f) {
             was_timeout=true;
-            YNet::get_singleton()->emit_signal(SNAME("connected"),"TIMEOUT",false);
+            YNet::get_singleton()->last_error_message = "TIMEOUT";
+            YNet::get_singleton()->emit_signal(SNAME("connection_result"),false);
             transport_disconnect();
             return;
         }
@@ -192,7 +196,8 @@ void YNetEnet::transport_process(YNet* ynet) {
                 }
                 peer = Ref<ENetPacketPeer>();
                 if (status == STATE_CONNECTING) {
-                    YNet::get_singleton()->emit_signal(SNAME("connected"),"CONNECTION CLOSED BY SERVER",false);
+                    YNet::get_singleton()->last_error_message = "CONNECTION CLOSED BY SERVER";
+                    YNet::get_singleton()->emit_signal(SNAME("connection_result"),false);
                 }
                 set_current_state(STATE_CLOSED);
                 YNet::get_singleton()->emit_signal(SNAME("disconnected"), "", "Connection closed by server");
@@ -203,7 +208,8 @@ void YNetEnet::transport_process(YNet* ynet) {
                     print_line("[YNet] Connection error occurred");
                 }
                 if (status == STATE_CONNECTING) {
-                    YNet::get_singleton()->emit_signal(SNAME("connected"),"CONNECTION ERROR",false);
+                    YNet::get_singleton()->last_error_message = "CONNECTION ERROR";
+                    YNet::get_singleton()->emit_signal(SNAME("connection_result"),false);
                 }
                 set_current_state(STATE_CLOSED);
             } break;
@@ -261,7 +267,7 @@ void YNetEnet::handle_received_message(const uint8_t* data, size_t dataLength) {
                 if (debugging >= YNet::DebuggingLevel::MINIMAL) {
                     print_line(vformat("[YNet] Connection established, SID received %d (Hashed: %d)", msg->clientId, YNet::get_singleton()->hashed_sid));
                 }
-                YNet::get_singleton()->emit_signal(SNAME("connected"), "", true);
+                YNet::get_singleton()->transport_connected_successfully();
             }
         } break;
         case YNetMessage::MessageType::CONFIRM_ROOM_CREATION: { // CONFIRM_ROOM_CREATION

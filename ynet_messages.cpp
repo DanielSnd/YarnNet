@@ -14,7 +14,7 @@ PackedByteArray YNetMessage::serialize() const {
     encode_variant(data, nullptr, len, false);
     result.resize(1 + len);
     encode_variant(data, &result.write[1], len, false);
-    print_line(vformat("[YNet] Serialized message type %d with data %s. Result: %s", type, data, result));
+
     return result;
 }
 

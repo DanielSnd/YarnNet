@@ -14,11 +14,12 @@ void initialize_yarnnet_module(ModuleInitializationLevel p_level) {
 	// ClassDB::register_class<YNetTransport>();
 	ClassDB::register_class<YNetSocketIO>();
 	ClassDB::register_class<YNetEnet>();
+	ClassDB::register_class<YSnapSyncer3D>();
 
 	// Bind your singleton.
 	Engine::get_singleton()->add_singleton(Engine::Singleton("YNet", memnew(YNet)));
 
-	ClassDB::register_class<YnetMultiplayerPeer>();
+	ClassDB::register_class<YNetMultiplayerPeer>();
 }
 
 void uninitialize_yarnnet_module(ModuleInitializationLevel p_level) {
