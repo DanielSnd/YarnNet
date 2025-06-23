@@ -1,43 +1,71 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <class name="YNet" inherits="Node" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
 	<brief_description>
-		A high-level networking solution for Godot that provides room-based multiplayer functionality with automatic property synchronization.
+		A high-level networking solution for Godot that provides room-based multiplayer functionality with multiple transport protocols and automatic property synchronization.
 	</brief_description>
 	<description>
-		YNet is a powerful networking solution that provides easy-to-use room-based multiplayer functionality for Godot games. It handles network object spawning, property synchronization, and RPC calls automatically.
+		YNet is a powerful networking solution that provides easy-to-use room-based multiplayer functionality for Godot games. It supports multiple transport protocols (ENet and Socket.IO) and handles network object spawning, property synchronization, and RPC calls automatically.
 
 		Key features:
-		- Room-based multiplayer with automatic host migration
-		- Automatic property synchronization between peers
-		- Network object spawning and despawning
-		- Built-in RPC system
-		- Support for password-protected rooms
-		- Room listing and discovery
+		- **Multi-Transport Support**: Choose between ENet (low-latency) and Socket.IO (firewall-friendly) transports
+		- **Simplified Connection API**: Easy one-line connection and room management
+		- **Room-based multiplayer** with automatic host migration
+		- **Automatic property synchronization** between peers
+		- **Network object spawning and despawning**
+		- **Built-in RPC system** with support for buffered RPCs
+		- **Support for password-protected rooms**
+		- **Room listing and discovery**
+		- **Server time synchronization**
 
-		To get started with YNet:
+		Quick Start Example:
 
 		[codeblock]
-		# First, enable YNet in project settings
-		# Then in your scene:
-		var ynet = YNet.new()
-		add_child(ynet)
+		# Simple connection and room creation
+		var result:bool =await YNet.connect_to_and_create_room("localhost:7777").connection_result
+		if result:
+			print("Connected to room: ", YNet.room_id)
 
-		# Connect to a server
-		ynet.ynet_connect("wss://your-server.com")
-
-		# Create a room
-		ynet.create_room()
-
-		# Or join an existing room
-		ynet.join_room("room_code")
+		# Join an existing room
+		var result:bool =await YNet.connect_to_and_join_room("localhost:7777", "ROOM123").connection_result
+		if result:
+			print("Joined room: ", YNet.room_id)
 
 		# Spawn a networked object
-		var scene = load("res://your_scene.tscn")
-		ynet.spawn(scene, "Player", NodePath("/root/Game"), Vector2(100, 100), 1)
+		var scene = load("res://player.tscn")
+		YNet.spawn(scene, "Player", NodePath("/root/Game"), Vector3(0, 0, 0), 1)
 
 		# Register a property for synchronization
 		var player = get_node("Player")
-		ynet.register_sync_property(player, "position", 1)
+		YNet.register_sync_property(player, "position", 1)
+		[/codeblock]
+
+		Transport Protocols:
+
+		**ENet Transport (Default)**
+		- Low latency, UDP-based, good for real-time games
+		- Doesn't work for web games
+		- Best for low-latency requirements
+
+		**Socket.IO Transport**
+		- Works through firewalls, WebSocket-based, good for web games
+		- Higher latency, requires a Socket.IO server
+		- Best for web games, games that need to work through firewalls
+
+		Connection Methods:
+
+		[codeblock]
+		# Simple connection methods (return awaitable results)
+		var result:bool =await YNet.connect_to_and_create_room("localhost:7777").connection_result
+		var result:bool =await YNet.connect_to_and_join_room("localhost:7777", "ROOM123").connection_result
+		var result:bool =await YNet.connect_to_and_join_room_with_password("localhost:7777", "ROOM123", "password").connection_result
+		var result:bool =await YNet.connect_to("localhost:7777").connection_result
+
+		# Get the last connection error message
+		YNet.get_last_error_message()
+
+		# Specify transport type
+		YNet.connect_to_and_create_room("localhost:7777", YNet.TRANSPORT_TYPE_ENET)
+		YNet.connect_to_and_create_room("ws://localhost:7777", YNet.TRANSPORT_TYPE_SOCKETIO)
 		[/codeblock]
 
 		Property Synchronization:
@@ -50,7 +78,7 @@
 		# - property_path: Path to the property (e.g., "position" or "health")
 		# - authority: The peer ID that controls this property (1 for server)
 		# - always_sync: Whether to sync even when value hasn't changed
-		ynet.register_sync_property(player, "position", 1, false)
+		YNet.register_sync_property(player, "position", 1, false)
 		[/codeblock]
 
 		Network Object Spawning:
@@ -65,10 +93,36 @@
 		# - position: Spawn position
 		# - authority: The peer ID that controls this object
 		var scene = load("res://player.tscn")
-		ynet.spawn(scene, "Player", NodePath("/root/Game"), Vector2(100, 100), 1)
+		YNet.spawn(scene, "Player", NodePath("/root/Game"), Vector3(0, 0, 0), 1)
 
 		# Despawn a networked object
-		ynet.despawn_node(player)
+		YNet.despawn_node(player)
+		[/codeblock]
+
+		RPC System:
+		YNet provides a custom RPC system that works with networked objects:
+
+		[codeblock]
+		# Send an RPC to all peers
+		YNet.send_yrpc(receive_chat_message, "Hello world", 42)
+
+		# RPC method (must be marked with @rpc)
+		@rpc("any_peer", "call_remote")
+		func receive_chat_message(message: String, number: int):
+			print("Received: ", message, " ", number)
+		[/codeblock]
+
+		Buffered RPCs:
+		Buffered RPCs are automatically sent to new players when they join the room:
+
+		[codeblock]
+		# Buffered RPCs are automatically detected by method names ending with "_buffered"
+		@rpc("any_peer", "call_remote")
+		func set_player_name_buffered(name: String):
+			player_name = name
+
+		# Remove a buffered RPC
+		YNet.remove_buffered_yrpc(set_player_name_buffered)
 		[/codeblock]
 
 		Room Management:
@@ -76,22 +130,22 @@
 
 		[codeblock]
 		# Create a room
-		ynet.create_room()
+		YNet.create_room()
 
 		# Create a room with a specific code
-		ynet.create_room_with_code("MYROOM")
+		YNet.create_room_with_code("MYROOM")
 
 		# Join a room
-		ynet.join_room("ROOMCODE")
+		YNet.join_room("ROOMCODE")
 
 		# Join a room with password
-		ynet.join_room_with_password("ROOMCODE", "password")
+		YNet.join_room_with_password("ROOMCODE", "password")
 
 		# Leave current room
-		ynet.leave_room()
+		YNet.leave_room()
 
 		# Get list of available rooms
-		ynet.get_room_list()
+		YNet.get_room_list()
 		[/codeblock]
 
 		Signals:
@@ -99,10 +153,11 @@
 
 		[codeblock]
 		# Connect to signals
-		ynet.connect("room_created", _on_room_created)
-		ynet.connect("room_joined", _on_room_joined)
-		ynet.connect("player_joined", _on_player_joined)
-		ynet.connect("player_left", _on_player_left)
+		YNet.connect("room_created", _on_room_created)
+		YNet.connect("room_joined", _on_room_joined)
+		YNet.connect("player_joined", _on_player_joined)
+		YNet.connect("player_left", _on_player_left)
+		YNet.connect("connection_result", _on_connection_result)
 		[/codeblock]
 
 		Debugging:
@@ -115,7 +170,7 @@
 		# 2: Most messages
 		# 3: Messages and ping
 		# 4: All
-		ynet.debugging = YNet.DebuggingLevel.ALL
+		YNet.debugging = YNet.DebuggingLevel.ALL
 		[/codeblock]
 	</description>
 	<tutorials>
@@ -128,10 +183,51 @@
 				Registers a scene as a network spawnable object. This scene can then be spawned across the network using the spawn methods. The scene path must be valid and the scene must be loadable.
 			</description>
 		</method>
+		<method name="cleanup_network_state">
+			<return type="void" />
+			<description>
+				Cleans up all network state, including spawned objects and property syncers. Called automatically when disconnecting.
+			</description>
+		</method>
 		<method name="clear_all_spawned_network_nodes">
 			<return type="void" />
 			<description>
 				Removes all spawned network nodes from the scene. This is useful for cleaning up when leaving a room or resetting the game state.
+			</description>
+		</method>
+		<method name="connect_to">
+			<return type="YNet" />
+			<param index="0" name="url" type="String" />
+			<param index="1" name="transport_type" type="int" enum="YNet.TransportType" default="2" />
+			<description>
+				Connects to a server without joining a room. Returns self for method chaining. Use the "connection_result" signal or await the connection_result property to check if the connection was successful.
+			</description>
+		</method>
+		<method name="connect_to_and_create_room">
+			<return type="YNet" />
+			<param index="0" name="url" type="String" />
+			<param index="1" name="transport_type" type="int" enum="YNet.TransportType" default="2" />
+			<description>
+				Connects to a server and creates a new room. Returns self for method chaining. Use the "connection_result" signal or await the connection_result property to check if the connection was successful.
+			</description>
+		</method>
+		<method name="connect_to_and_join_room">
+			<return type="YNet" />
+			<param index="0" name="url" type="String" />
+			<param index="1" name="room_id" type="String" default="&quot;&quot;" />
+			<param index="2" name="transport_type" type="int" enum="YNet.TransportType" default="2" />
+			<description>
+				Connects to a server and joins an existing room. If room_id is empty, joins any available room. Returns self for method chaining. Use the "connection_result" signal or await the connection_result property to check if the connection was successful.
+			</description>
+		</method>
+		<method name="connect_to_and_join_room_with_password">
+			<return type="YNet" />
+			<param index="0" name="url" type="String" />
+			<param index="1" name="room_id" type="String" />
+			<param index="2" name="password" type="String" />
+			<param index="3" name="transport_type" type="int" enum="YNet.TransportType" default="2" />
+			<description>
+				Connects to a server and joins a password-protected room. Returns self for method chaining. Use the "connection_result" signal or await the connection_result property to check if the connection was successful.
 			</description>
 		</method>
 		<method name="create_room">
@@ -143,6 +239,7 @@
 		<method name="create_room_with_code">
 			<return type="YNet" />
 			<param index="0" name="roomcode" type="String" />
+			<param index="1" name="password" type="String" default="&quot;&quot;" />
 			<description>
 				Creates a new room with the specified room code. Returns self for method chaining. Emits the "room_created" signal when successful.
 			</description>
@@ -173,6 +270,18 @@
 			<param index="0" name="net_id" type="int" />
 			<description>
 				Finds a networked node by its network ID. Returns null if the node is not found.
+			</description>
+		</method>
+		<method name="get_debug_run_multiple_instances" qualifiers="static">
+			<return type="bool" />
+			<description>
+				Returns whether multiple instances of the game can be run simultaneously for debugging purposes.
+			</description>
+		</method>
+		<method name="get_last_error_message">
+			<return type="String" />
+			<description>
+				Returns the last error message from connection or room operations. Useful for debugging connection issues.
 			</description>
 		</method>
 		<method name="get_network_spawnable_id">
@@ -207,6 +316,12 @@
 				Requests a list of all available rooms. Emits the "room_list" signal when the list is received.
 			</description>
 		</method>
+		<method name="get_rtt" qualifiers="const">
+			<return type="float" />
+			<description>
+				Returns the current round-trip time (RTT) to the server in seconds. This is automatically calculated during time synchronization.
+			</description>
+		</method>
 		<method name="get_spawned_obj_count" qualifiers="const">
 			<return type="int" />
 			<description>
@@ -220,9 +335,16 @@
 				Returns true if the given scene path is registered as a network spawnable.
 			</description>
 		</method>
+		<method name="is_time_synced" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Returns true if the client has successfully synchronized its time with the server.
+			</description>
+		</method>
 		<method name="join_or_create_room">
 			<return type="YNet" />
 			<param index="0" name="roomcode" type="String" default="&quot;&quot;" />
+			<param index="1" name="password" type="String" default="&quot;&quot;" />
 			<description>
 				Attempts to join a room with the given code. If the room doesn't exist, creates a new room with that code. If no code is provided, creates a random room. Returns self for method chaining.
 			</description>
@@ -230,16 +352,9 @@
 		<method name="join_room">
 			<return type="YNet" />
 			<param index="0" name="roomcode" type="String" />
+			<param index="1" name="password" type="String" default="&quot;&quot;" />
 			<description>
 				Attempts to join an existing room with the given code. Returns self for method chaining. Emits the "room_joined" signal when successful.
-			</description>
-		</method>
-		<method name="join_room_with_password">
-			<return type="YNet" />
-			<param index="0" name="roomCode" type="String" />
-			<param index="1" name="password" type="String" />
-			<description>
-				Attempts to join a password-protected room. Returns self for method chaining. Emits the "room_joined" signal when successful.
 			</description>
 		</method>
 		<method name="leave_room">
@@ -262,6 +377,30 @@
 				Similar to receive_yrpc, but also executes the RPC locally on the sender's machine. This is used internally by send_and_receive_yrpc and should not be called directly.
 			</description>
 		</method>
+		<method name="receive_yrpc_reliable" qualifiers="vararg">
+			<return type="Variant" />
+			<param index="0" name="yrpc_info" type="Array" />
+			<description>
+			</description>
+		</method>
+		<method name="receive_yrpc_reliable_call_local" qualifiers="vararg">
+			<return type="Variant" />
+			<param index="0" name="yrpc_info" type="Array" />
+			<description>
+			</description>
+		</method>
+		<method name="receive_yrpc_unreliable" qualifiers="vararg">
+			<return type="Variant" />
+			<param index="0" name="yrpc_info" type="Array" />
+			<description>
+			</description>
+		</method>
+		<method name="receive_yrpc_unreliable_call_local" qualifiers="vararg">
+			<return type="Variant" />
+			<param index="0" name="yrpc_info" type="Array" />
+			<description>
+			</description>
+		</method>
 		<method name="register_for_yrpc">
 			<return type="void" />
 			<param index="0" name="node" type="Node" />
@@ -278,18 +417,33 @@
 			<param index="3" name="always_sync" type="bool" default="false" />
 			<description>
 				Registers a property of a networked node for automatic synchronization across the network. Returns a YNetPropertySyncer that can be used to control the synchronization.
-				
+
 				Parameters:
 				- networked_node: The node containing the property to sync
 				- property_path: The path to the property to sync
 				- authority: The network ID of the node that has authority over this property (default: 1)
 				- always_sync: If true, the property will be synced every frame (default: false)
-				
+
 				Example:
 				[codeblock]
 				# Register a health property for synchronization
 				var syncer = YNet.register_sync_property(player_node, "health", 1)
 				[/codeblock]
+			</description>
+		</method>
+		<method name="remove_buffered_yrpc">
+			<return type="void" />
+			<param index="0" name="callable" type="Callable" />
+			<description>
+				Removes a buffered RPC from the system. Buffered RPCs are automatically sent to new players when they join the room. This method removes a specific buffered RPC callable.
+			</description>
+		</method>
+		<method name="remove_buffered_yrpc_method">
+			<return type="void" />
+			<param index="0" name="network_id" type="int" />
+			<param index="1" name="method" type="String" default="&quot;&quot;" />
+			<description>
+				Removes buffered RPCs for a specific network ID. If method is empty, removes all buffered RPCs for that network ID. Otherwise, removes only the specified method.
 			</description>
 		</method>
 		<method name="remove_from_yrpc">
@@ -323,6 +477,7 @@
 		<method name="rpc_respond_with_spawned_nodes">
 			<return type="void" />
 			<param index="0" name="spawned_nodes_data" type="Array" />
+			<param index="1" name="buffered_yrpcs_dct" type="Dictionary" default="{}" />
 			<description>
 				Internal RPC method that sends the current list of spawned nodes to a requesting client. This is called automatically by the server when a client requests spawned nodes and should not be called directly.
 			</description>
@@ -339,17 +494,19 @@
 				Internal RPC method that handles spawning networked nodes across the network. This is called automatically by the spawning system and should not be called directly.
 			</description>
 		</method>
-		<method name="send_and_receive_yrpc" qualifiers="vararg">
-			<return type="int" enum="Error" />
-			<param index="0" name="method" type="Callable" />
+		<method name="rpc_time_sync_request">
+			<return type="void" />
+			<param index="0" name="client_time" type="float" />
 			<description>
-				Similar to send_yrpc, but also executes the RPC locally on the sender's machine. This is useful when you want the RPC to run immediately on the sender while also being sent to other peers.
-				
-				Example:
-				[codeblock]
-				# Update health locally and on all peers
-				YNet.send_and_receive_yrpc(update_health, 100)
-				[/codeblock]
+				Internal RPC method that handles time synchronization requests from clients. This is called automatically by the time synchronization system and should not be called directly.
+			</description>
+		</method>
+		<method name="rpc_time_sync_response">
+			<return type="void" />
+			<param index="0" name="server_time" type="float" />
+			<param index="1" name="rtt" type="float" />
+			<description>
+				Internal RPC method that handles time synchronization responses from the server. This is called automatically by the time synchronization system and should not be called directly.
 			</description>
 		</method>
 		<method name="send_yrpc" qualifiers="vararg">
@@ -357,12 +514,20 @@
 			<param index="0" name="method" type="Callable" />
 			<description>
 				Sends an RPC call to all peers in the network. The method parameter should be a Callable pointing to the method to call on the target node. Additional arguments can be passed after the method parameter.
-				
+
 				Example:
 				[codeblock]
 				# Send an RPC to update player health
 				YNet.send_yrpc(update_health, 100)
 				[/codeblock]
+			</description>
+		</method>
+		<method name="send_yrpc_to" qualifiers="vararg">
+			<return type="int" enum="Error" />
+			<param index="0" name="target_peer" type="int" />
+			<param index="1" name="method" type="Callable" />
+			<description>
+				Sends an RPC call to a specific peer in the network. The target_peer parameter specifies which peer to send to, and the method parameter should be a Callable pointing to the method to call. Additional arguments can be passed after the method parameter.
 			</description>
 		</method>
 		<method name="server_or_client_str">
@@ -378,6 +543,13 @@
 				Sets whether the room can migrate to a new host if the current host disconnects. This should be called before creating or joining a room.
 			</description>
 		</method>
+		<method name="set_debug_run_multiple_instances" qualifiers="static">
+			<return type="void" />
+			<param index="0" name="status" type="bool" />
+			<description>
+				Sets whether multiple instances of the game can be run simultaneously for debugging purposes. This is useful for testing multiplayer functionality locally.
+			</description>
+		</method>
 		<method name="set_extra_info">
 			<return type="int" enum="Error" />
 			<param index="0" name="new_extra_info" type="String" />
@@ -390,6 +562,14 @@
 			<param index="0" name="newMaxPlayers" type="int" />
 			<description>
 				Sets the maximum number of players allowed in the room. This should be called before creating a room.
+			</description>
+		</method>
+		<method name="set_node_cleanup_with_owner">
+			<return type="void" />
+			<param index="0" name="node" type="Node" />
+			<param index="1" name="status" type="bool" default="true" />
+			<description>
+				Sets whether a networked node should be automatically cleaned up when its owner disconnects. This is useful for player-specific objects that should be removed when the player leaves.
 			</description>
 		</method>
 		<method name="set_password">
@@ -419,29 +599,6 @@
 				Internal method that sets up the YNet node for networking. This is called automatically when the node enters the scene tree and should not be called directly.
 			</description>
 		</method>
-		<method name="socketio_connect">
-			<return type="void" />
-			<param index="0" name="name_space" type="String" default="&quot;/&quot;" />
-			<description>
-				Internal method that establishes a Socket.IO connection to the server. This is called automatically by the connection system and should not be called directly.
-			</description>
-		</method>
-		<method name="socketio_disconnect">
-			<return type="void" />
-			<param index="0" name="name_space" type="String" default="&quot;/&quot;" />
-			<description>
-				Internal method that disconnects the Socket.IO connection from the server. This is called automatically by the disconnection system and should not be called directly.
-			</description>
-		</method>
-		<method name="socketio_send_event">
-			<return type="int" enum="Error" />
-			<param index="0" name="event_name" type="String" />
-			<param index="1" name="data" type="Variant" default="null" />
-			<param index="2" name="name_space" type="String" default="&quot;&quot;" />
-			<description>
-				Sends a Socket.IO event to the server. The event_name parameter identifies the type of event, data contains the event payload, and name_space specifies which namespace to send to.
-			</description>
-		</method>
 		<method name="spawn">
 			<return type="Node" />
 			<param index="0" name="spawnable_scene" type="PackedScene" />
@@ -450,19 +607,12 @@
 			<param index="3" name="global_pos" type="Variant" />
 			<param index="4" name="authority" type="int" default="1" />
 			<description>
-				Spawns a networked object from a PackedScene. The object will be created on all connected peers. Returns the spawned Node instance.
-				
-				Parameters:
-				- spawnable_scene: The scene to spawn
-				- spawned_name: Name for the spawned node
-				- parent_path: Path to the parent node
-				- global_pos: Spawn position
-				- authority: The peer ID that controls this object (default: 1)
+				Spawns a networked object from a registered spawnable scene. The object will be created on all connected peers. Returns the spawned Node instance.
 			</description>
 		</method>
 		<method name="spawn_with_path">
 			<return type="Node" />
-			<param index="0" name="spawnable_scene_path" type="PackedScene" />
+			<param index="0" name="spawnable_scene_path" type="String" />
 			<param index="1" name="spawned_name" type="String" />
 			<param index="2" name="parent_path" type="NodePath" />
 			<param index="3" name="global_pos" type="Variant" />
@@ -478,172 +628,20 @@
 				Converts a string to a unique hash ID. This is used internally for generating network IDs and should not be called directly.
 			</description>
 		</method>
-		<method name="test_send_sync">
-			<return type="void" />
-			<description>
-				Internal method used for testing property synchronization. This should not be called directly.
-			</description>
-		</method>
 		<method name="update_networked_property_syncers">
 			<return type="void" />
 			<description>
 				Internal method that updates all registered property syncers. This is called automatically each frame and should not be called directly.
 			</description>
 		</method>
-		<method name="ynet_connect">
-			<return type="YNet" />
-			<param index="0" name="url" type="String" />
-			<description>
-				Establishes a connection to the YNet server at the specified URL. Returns self for method chaining.
-				
-				Example:
-				[codeblock]
-				# Connect to a YNet server
-				ynet.ynet_connect("wss://your-server.com")
-				[/codeblock]
-			</description>
-		</method>
-		<method name="ynet_disconnect">
-			<return type="void" />
-			<description>
-				Disconnects from the YNet server and cleans up all network resources. This should be called when you're done with the networking session.
-			</description>
-		</method>
-		<method name="process_queued_spawns">
-			<return type="void" />
-			<description>
-				Processes any queued spawn requests. This is called automatically each frame, but can be called manually if needed.
-			</description>
-		</method>
-		<method name="register_network_spawnable">
-			<return type="int" />
-			<param index="0" name="spawnable_path" type="String" />
-			<description>
-				Registers a scene as a network spawnable and returns its network ID. This is an alternative to add_network_spawnable that returns the ID directly.
-			</description>
-		</method>
-		<method name="remove_network_spawnable">
-			<return type="void" />
-			<param index="0" name="spawnable_path" type="String" />
-			<description>
-				Removes a scene from the list of network spawnables. This scene can no longer be spawned across the network.
-			</description>
-		</method>
-		<method name="set_room_password">
-			<return type="YNet" />
-			<param index="0" name="password" type="String" />
-			<description>
-				Sets a password for the current room. Only players with the password will be able to join. Returns self for method chaining.
-			</description>
-		</method>
-		<method name="set_room_public">
-			<return type="YNet" />
-			<param index="0" name="is_public" type="bool" />
-			<description>
-				Sets whether the current room should be visible in the public room list. Returns self for method chaining.
-			</description>
-		</method>
-		<method name="spawn">
-			<return type="Node" />
-			<param index="0" name="spawnable_path" type="String" />
-			<param index="1" name="parent" type="Node" default="null" />
-			<param index="2" name="spawn_position" type="Vector3" default="Vector3(0, 0, 0)" />
-			<param index="3" name="spawn_rotation" type="Vector3" default="Vector3(0, 0, 0)" />
-			<param index="4" name="spawn_scale" type="Vector3" default="Vector3(1, 1, 1)" />
-			<param index="5" name="spawn_data" type="Dictionary" default="{}" />
-			<description>
-				Spawns a networked object from a registered spawnable scene. The object will be created on all connected peers. Returns the spawned Node instance.
-			</description>
-		</method>
-		<method name="spawn_with_id">
-			<return type="Node" />
-			<param index="0" name="spawnable_path" type="String" />
-			<param index="1" name="network_id" type="int" />
-			<param index="2" name="parent" type="Node" default="null" />
-			<param index="3" name="spawn_position" type="Vector3" default="Vector3(0, 0, 0)" />
-			<param index="4" name="spawn_rotation" type="Vector3" default="Vector3(0, 0, 0)" />
-			<param index="5" name="spawn_scale" type="Vector3" default="Vector3(1, 1, 1)" />
-			<param index="6" name="spawn_data" type="Dictionary" default="{}" />
-			<description>
-				Spawns a networked object with a specific network ID. This is useful when you need to ensure consistent network IDs across spawns. Returns the spawned Node instance.
-				
-				Parameters:
-				- spawnable_path: Path to the scene to spawn
-				- network_id: The specific network ID to assign to the spawned object
-				- parent: The parent node for the spawned object (default: null)
-				- spawn_position: The position to spawn the object at (default: Vector3(0, 0, 0))
-				- spawn_rotation: The rotation to spawn the object with (default: Vector3(0, 0, 0))
-				- spawn_scale: The scale to spawn the object with (default: Vector3(1, 1, 1))
-				- spawn_data: Additional data to pass to the spawned object (default: {})
-			</description>
-		</method>
-		<method name="spawn_with_id_and_owner">
-			<return type="Node" />
-			<param index="0" name="spawnable_path" type="String" />
-			<param index="1" name="network_id" type="int" />
-			<param index="2" name="owner_id" type="int" />
-			<param index="3" name="parent" type="Node" default="null" />
-			<param index="4" name="spawn_position" type="Vector3" default="Vector3(0, 0, 0)" />
-			<param index="5" name="spawn_rotation" type="Vector3" default="Vector3(0, 0, 0)" />
-			<param index="6" name="spawn_scale" type="Vector3" default="Vector3(1, 1, 1)" />
-			<param index="7" name="spawn_data" type="Dictionary" default="{}" />
-			<description>
-				Spawns a networked object with a specific network ID and owner. The owner will have authority over the object. Returns the spawned Node instance.
-				
-				Parameters:
-				- spawnable_path: Path to the scene to spawn
-				- network_id: The specific network ID to assign to the spawned object
-				- owner_id: The network ID of the peer that will have authority over this object
-				- parent: The parent node for the spawned object (default: null)
-				- spawn_position: The position to spawn the object at (default: Vector3(0, 0, 0))
-				- spawn_rotation: The rotation to spawn the object with (default: Vector3(0, 0, 0))
-				- spawn_scale: The scale to spawn the object with (default: Vector3(1, 1, 1))
-				- spawn_data: Additional data to pass to the spawned object (default: {})
-			</description>
-		</method>
-		<method name="spawn_with_owner">
-			<return type="Node" />
-			<param index="0" name="spawnable_path" type="String" />
-			<param index="1" name="owner_id" type="int" />
-			<param index="2" name="parent" type="Node" default="null" />
-			<param index="3" name="spawn_position" type="Vector3" default="Vector3(0, 0, 0)" />
-			<param index="4" name="spawn_rotation" type="Vector3" default="Vector3(0, 0, 0)" />
-			<param index="5" name="spawn_scale" type="Vector3" default="Vector3(1, 1, 1)" />
-			<param index="6" name="spawn_data" type="Dictionary" default="{}" />
-			<description>
-				Spawns a networked object with a specific owner. The owner will have authority over the object. Returns the spawned Node instance.
-				
-				Parameters:
-				- spawnable_path: Path to the scene to spawn
-				- owner_id: The network ID of the peer that will have authority over this object
-				- parent: The parent node for the spawned object (default: null)
-				- spawn_position: The position to spawn the object at (default: Vector3(0, 0, 0))
-				- spawn_rotation: The rotation to spawn the object with (default: Vector3(0, 0, 0))
-				- spawn_scale: The scale to spawn the object with (default: Vector3(1, 1, 1))
-				- spawn_data: Additional data to pass to the spawned object (default: {})
-			</description>
-		</method>
-		<method name="get_string_id" qualifiers="const">
-			<return type="String" />
-			<param index="0" name="int_id" type="int" />
-			<description>
-				Converts a numeric ID to its string representation. This is used internally for mapping between numeric and string IDs in the networking system.
-				
-				Example:
-				[codeblock]
-				var string_id = ynet.get_string_id(123)
-				print("String ID: ", string_id)
-				[/codeblock]
-			</description>
-		</method>
 		<method name="was_last_rpc_sender_host" qualifiers="const">
 			<return type="bool" />
 			<description>
 				Returns true if the last RPC call was sent by the host. This can be used to verify the authority of RPC calls.
-				
+
 				Example:
 				[codeblock]
-				func _on_rpc_received() -> void:
+				func _on_rpc_received() -&gt; void:
 				    if ynet.was_last_rpc_sender_host():
 				        # Process host's RPC
 				        process_host_rpc()
@@ -653,73 +651,21 @@
 				[/codeblock]
 			</description>
 		</method>
-		<method name="get_max_queued_packets" qualifiers="const">
-			<return type="int" />
-			<description>
-				Returns the maximum number of packets that can be queued for transmission. This helps prevent memory issues from too many queued packets.
-				
-				Example:
-				[codeblock]
-				var max_packets = ynet.get_max_queued_packets()
-				print("Max queued packets: ", max_packets)
-				[/codeblock]
-			</description>
-		</method>
-		<method name="set_max_queued_packets">
+		<method name="ynet_disconnect">
 			<return type="void" />
-			<param index="0" name="p_max_queued_packets" type="int" />
 			<description>
-				Sets the maximum number of packets that can be queued for transmission. This helps prevent memory issues from too many queued packets.
-				
-				Parameters:
-				- p_max_queued_packets: The maximum number of packets to allow in the queue
-				
-				Example:
-				[codeblock]
-				# Set a reasonable limit for queued packets
-				ynet.set_max_queued_packets(1000)
-				[/codeblock]
-			</description>
-		</method>
-		<method name="get_current_state" qualifiers="const">
-			<return type="int" />
-			<description>
-				Returns the current connection state of the YNet instance. The state can be one of:
-				- STATE_CONNECTING (0): Currently attempting to connect
-				- STATE_OPEN (1): Successfully connected
-				- STATE_CLOSING (2): Currently closing the connection
-				- STATE_CLOSED (3): Connection is closed
-				
-				Example:
-				[codeblock]
-				var state = ynet.get_current_state()
-				match state:
-				    0: print("Connecting...")
-				    1: print("Connected")
-				    2: print("Closing...")
-				    3: print("Closed")
-				[/codeblock]
-			</description>
-		</method>
-		<method name="set_current_state">
-			<return type="void" />
-			<param index="0" name="val" type="int" />
-			<description>
-				Sets the current connection state of the YNet instance. This is typically handled internally and should not be called directly.
-				
-				Parameters:
-				- val: The new state to set (0-3)
-				
-				States:
-				- STATE_CONNECTING (0): Currently attempting to connect
-				- STATE_OPEN (1): Successfully connected
-				- STATE_CLOSING (2): Currently closing the connection
-				- STATE_CLOSED (3): Connection is closed
+				Disconnects from the YNet server and cleans up all network resources. This should be called when you're done with the networking session.
 			</description>
 		</method>
 	</methods>
 	<members>
+		<member name="auto_cleanup_on_disconnect" type="bool" setter="set_auto_cleanup_on_disconnect" getter="get_auto_cleanup_on_disconnect" default="true">
+		</member>
 		<member name="debugging" type="int" setter="set_debugging" getter="get_debugging" enum="YNet.DebuggingLevel" default="0">
+		</member>
+		<member name="default_scene_instantiated_for_host" type="String" setter="set_default_scene_instantiated_for_host" getter="get_default_scene_instantiated_for_host" default="&quot;&quot;">
+		</member>
+		<member name="default_scene_instantiated_for_peers" type="String" setter="set_default_scene_instantiated_for_peers" getter="get_default_scene_instantiated_for_peers" default="&quot;&quot;">
 		</member>
 		<member name="hashed_socket_id" type="int" setter="set_hashed_socket_id" getter="get_hashed_socket_id" default="0">
 		</member>
@@ -727,7 +673,7 @@
 		</member>
 		<member name="is_host" type="bool" setter="set_is_host" getter="get_is_host" default="false">
 		</member>
-		<member name="last_used_id" type="int" setter="set_last_used_id" getter="get_last_used_id" default="1">
+		<member name="offline_mode" type="bool" setter="set_offline_mode" getter="get_offline_mode" default="false">
 		</member>
 		<member name="pause_receive_spawns" type="bool" setter="set_pause_receive_spawns" getter="get_pause_receive_spawns" default="false">
 		</member>
@@ -739,24 +685,19 @@
 		</member>
 		<member name="room_id_without_protocol" type="String" setter="set_room_id_without_protocol" getter="get_room_id_without_protocol" default="&quot;&quot;">
 		</member>
+		<member name="server_time" type="float" setter="set_server_time" getter="get_server_time" default="0.0">
+		</member>
+		<member name="server_time_tracking" type="bool" setter="set_server_time_tracking" getter="get_server_time_tracking" default="true">
+		</member>
 		<member name="socket_id" type="String" setter="set_socket_id" getter="get_socket_id" default="&quot;&quot;">
+		</member>
+		<member name="transport" type="YNetTransport" setter="set_transport" getter="get_transport">
 		</member>
 	</members>
 	<signals>
-		<signal name="connected">
-			<param index="0" name="name_space" type="String" />
-			<param index="1" name="result" type="bool" />
+		<signal name="connection_result">
+			<param index="0" name="result" type="bool" />
 			<description>
-				Emitted when a connection to a namespace is established. The name_space parameter indicates which namespace was connected to, and result indicates whether the connection was successful.
-				
-				Example:
-				[codeblock]
-				func _on_connected(name_space: String, result: bool) -> void:
-				    if result:
-				        print("Connected to namespace: ", name_space)
-				    else:
-				        print("Failed to connect to namespace: ", name_space)
-				[/codeblock]
 			</description>
 		</signal>
 		<signal name="disconnected">
@@ -764,7 +705,7 @@
 			<param index="1" name="reason" type="String" />
 			<description>
 				Emitted when the connection is closed. The code parameter indicates the close code, and reason provides additional information about why the connection was closed.
-				
+
 				Example:
 				[codeblock]
 				func _on_disconnected(code: int, reason: String) -&gt; void:
@@ -776,7 +717,7 @@
 			<param index="0" name="payload" type="String" />
 			<description>
 				Emitted when a raw Engine.IO message is received. The payload contains the message data.
-				
+
 				Example:
 				[codeblock]
 				func _on_engine_message(payload: String) -&gt; void:
@@ -784,39 +725,21 @@
 				[/codeblock]
 			</description>
 		</signal>
-		<signal name="event">
-			<param index="0" name="event_name" type="String" />
-			<param index="1" name="payload" type="Object" />
-			<param index="2" name="name_space" type="String" />
+		<signal name="peer_connected">
+			<param index="0" name="peer_id" type="int" />
 			<description>
-				Emitted when a Socket.IO event is received. The event_name identifies the type of event, payload contains the event data, and name_space indicates which namespace the event came from.
-				
-				Example:
-				[codeblock]
-				func _on_event(event_name: String, payload: Object, name_space: String) -&gt; void:
-				    print("Received event ", event_name, " in namespace ", name_space)
-				    print("Payload: ", payload)
-				[/codeblock]
 			</description>
 		</signal>
-		<signal name="host_migration">
-			<param index="0" name="new_host_sid" type="String" />
+		<signal name="peer_disconnected">
+			<param index="0" name="peer_id" type="int" />
 			<description>
-				Emitted when the room host changes. The new_host_sid parameter contains the socket ID of the new host.
-				
-				Example:
-				[codeblock]
-				func _on_host_migration(new_host_sid: String) -&gt; void:
-				    print("Host migrated to: ", new_host_sid)
-				    # Update game state for new host
-				[/codeblock]
 			</description>
 		</signal>
 		<signal name="player_joined">
 			<param index="0" name="player_sid" type="String" />
 			<description>
 				Emitted when a new player joins the room. The player_sid parameter contains the socket ID of the joining player.
-				
+
 				Example:
 				[codeblock]
 				func _on_player_joined(player_sid: String) -&gt; void:
@@ -829,7 +752,7 @@
 			<param index="0" name="player_sid" type="String" />
 			<description>
 				Emitted when a player leaves the room. The player_sid parameter contains the socket ID of the leaving player.
-				
+
 				Example:
 				[codeblock]
 				func _on_player_left(player_sid: String) -&gt; void:
@@ -842,7 +765,7 @@
 			<param index="0" name="id" type="int" />
 			<description>
 				Emitted when successfully connected to a room. The id parameter contains the room's connection ID.
-				
+
 				Example:
 				[codeblock]
 				func _on_room_connected(id: int) -&gt; void:
@@ -856,7 +779,7 @@
 			<param index="1" name="result" type="bool" />
 			<description>
 				Emitted when a room connection attempt completes. The room_id parameter identifies the room, and result indicates whether the connection was successful.
-				
+
 				Example:
 				[codeblock]
 				func _on_room_connection_result(room_id: String, result: bool) -&gt; void:
@@ -871,7 +794,7 @@
 			<param index="0" name="new_room_id" type="String" />
 			<description>
 				Emitted when a new room is successfully created. The new_room_id parameter contains the ID of the created room.
-				
+
 				Example:
 				[codeblock]
 				func _on_room_created(new_room_id: String) -&gt; void:
@@ -884,7 +807,7 @@
 			<param index="0" name="id" type="int" />
 			<description>
 				Emitted when disconnected from a room. The id parameter contains the room's connection ID.
-				
+
 				Example:
 				[codeblock]
 				func _on_room_disconnected(id: int) -&gt; void:
@@ -897,7 +820,7 @@
 			<param index="0" name="returned_error" type="String" />
 			<description>
 				Emitted when an error occurs in room operations. The returned_error parameter contains details about the error.
-				
+
 				Example:
 				[codeblock]
 				func _on_room_error(returned_error: String) -&gt; void:
@@ -910,7 +833,7 @@
 			<param index="0" name="info" type="Dictionary" />
 			<description>
 				Emitted when room information is received. The info parameter contains a dictionary with details about the room.
-				
+
 				Example:
 				[codeblock]
 				func _on_room_info(info: Dictionary) -&gt; void:
@@ -924,7 +847,7 @@
 			<param index="1" name="new_room_host_id" type="String" />
 			<description>
 				Emitted when successfully joined a room. The new_room_id parameter contains the room ID, and new_room_host_id contains the socket ID of the room host.
-				
+
 				Example:
 				[codeblock]
 				func _on_room_joined(new_room_id: String, new_room_host_id: String) -&gt; void:
@@ -938,7 +861,7 @@
 			<param index="0" name="list" type="Array" />
 			<description>
 				Emitted when a list of available rooms is received. The list parameter contains an array of room information dictionaries.
-				
+
 				Example:
 				[codeblock]
 				func _on_room_list(list: Array) -&gt; void:
@@ -951,7 +874,7 @@
 			<param index="0" name="players" type="Array" />
 			<description>
 				Emitted when the list of players in the room is updated. The players parameter contains an array of player information.
-				
+
 				Example:
 				[codeblock]
 				func _on_room_players(players: Array) -&gt; void:
@@ -960,11 +883,15 @@
 				[/codeblock]
 			</description>
 		</signal>
+		<signal name="server_disconnected">
+			<description>
+			</description>
+		</signal>
 		<signal name="status_changed">
 			<param index="0" name="status" type="int" />
 			<description>
 				Emitted when the connection status changes. The status parameter indicates the new connection state (connecting, open, closing, or closed).
-				
+
 				Example:
 				[codeblock]
 				func _on_status_changed(status: int) -&gt; void:
@@ -978,34 +905,6 @@
 		</signal>
 	</signals>
 	<constants>
-		<constant name="open" value="0" enum="EngineIOPacketType">
-		</constant>
-		<constant name="close" value="1" enum="EngineIOPacketType">
-		</constant>
-		<constant name="ping" value="2" enum="EngineIOPacketType">
-		</constant>
-		<constant name="pong" value="3" enum="EngineIOPacketType">
-		</constant>
-		<constant name="message" value="4" enum="EngineIOPacketType">
-		</constant>
-		<constant name="upgrade" value="5" enum="EngineIOPacketType">
-		</constant>
-		<constant name="noop" value="6" enum="EngineIOPacketType">
-		</constant>
-		<constant name="CONNECT" value="0" enum="SocketIOPacketType">
-		</constant>
-		<constant name="DISCONNECT" value="1" enum="SocketIOPacketType">
-		</constant>
-		<constant name="EVENT" value="2" enum="SocketIOPacketType">
-		</constant>
-		<constant name="ACK" value="3" enum="SocketIOPacketType">
-		</constant>
-		<constant name="CONNECT_ERROR" value="4" enum="SocketIOPacketType">
-		</constant>
-		<constant name="BINARY_EVENT" value="5" enum="SocketIOPacketType">
-		</constant>
-		<constant name="BINARY_ACK" value="6" enum="SocketIOPacketType">
-		</constant>
 		<constant name="NONE" value="0" enum="DebuggingLevel">
 		</constant>
 		<constant name="MINIMAL" value="1" enum="DebuggingLevel">
@@ -1015,6 +914,12 @@
 		<constant name="MESSAGESANDPING" value="3" enum="DebuggingLevel">
 		</constant>
 		<constant name="ALL" value="4" enum="DebuggingLevel">
+		</constant>
+		<constant name="TRANSPORT_TYPE_NONE" value="0" enum="TransportType">
+		</constant>
+		<constant name="TRANSPORT_TYPE_SOCKETIO" value="1" enum="TransportType">
+		</constant>
+		<constant name="TRANSPORT_TYPE_ENET" value="2" enum="TransportType">
 		</constant>
 	</constants>
 </class>

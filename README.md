@@ -1,16 +1,17 @@
-# YNet _for Godot 4.2+_
+# YNet _for Godot 4.4+_
 
-A Godot 4.2+ Custom Module for making online multiplayer games.
+A Godot 4.4+ Custom Module for making online multiplayer games
 
 **Main Features:**
- - A custom multiplayer peer that uses a node.js socket.io server to connect players together in rooms and relay messages between them, including a way of retrieving room lists and room info from the server.
- - Custom RPC/Spawner/Synchronizer methods to replace godot's RPCs, MultiplayerSpawner and MultiplayerSynchronizer. These custom implementations rely on synchronized numeric IDs instead of node paths. If a player doesn't currently have the desired parent node path for a networked node it will queue the spawn/synchronization calls until it does.
-
-I'm mostly doing this for my own personal use so things are messier than they probably should be, and I haven't been documenting things. I'll try to do some more documentation and add a demo if anyone wants to try it.
-
-# Getting Started
-
-You need to compile the module with Godot Engine (4.2+). When compiling use the argument `host_migration=no` so the module doesn't include the host migration code. The host migration code requires changes to godot engine itself (You can see those changes in my [fork here](https://github.com/godotengine/godot-proposals/issues/7912#issuecomment-1963170915) if you'd like to use host migration.)
+ - **Middle-man Servers**: Uses a node.js socket.io, or an ENet server to connect players together in rooms and relay messages between them, including a way of retrieving room lists and room info from the server. No more worrying about NAT Punchthrough or Port Forwarding.
+ - **Simplified Connection API**: Easy one-line connection and room management
+ - **Custom RPC/Spawner/Synchronizer**: Methods to replace godot's RPCs, 
+ MultiplayerSpawner and MultiplayerSynchronizer. These custom implementations 
+ rely on synchronized numeric IDs instead of node paths. If a player doesn't 
+ - **Buffered RPCs**: RPCs that persist and are sent to new players when they join
+ - **YSnapSyncer3D**: Smooth position/rotation synchronization with interpolation and extrapolation
+ - **Automatic Property Synchronization**: Real-time property updates across the network
+ - **Room-based Multiplayer**: Create and join rooms with automatic host migration (Host Migration requires modifications to godot source code.)
 
 ## How to compile with godot
 1. Download godot source
@@ -27,74 +28,108 @@ The protocol setting is any string you'd like to use to identify this project. T
 
 ![image](https://github.com/DanielSnd/YarnNet/assets/9072324/0a7f78e0-1ce4-4026-8ed7-39ce2304e45b)
 
-## Server
+## Host Migration
 
-The server is made in node.js/socket.io and can be found in the server folder. It's the `server.js` file.
+If you want to make use of hos_migration, when compiling use the argument `host_migration=yes` so the module includes the host migration code. The host migration code requires changes to godot engine itself (You can see those changes in my [fork here](https://github.com/godotengine/godot-proposals/issues/7912#issuecomment-1963170915) if you'd like to use host migration.)
 
-## Hosting a room:
+## Quick Start Example
 
-```gdscript
-func _on_host_pressed() -> void:
-	var peer:MultiplayerPeer = YNetMultiplayerPeer.new()
-	YNet.transport = YNetSocketIO.new()
-	print("Await for connection attempt")
-  ## First step is to connect to the socket.io server. After calling YNet.ynet_connect you need to await for the socket.io connection to happen. If result[1] is false then the connection failed. result[0] is an error String.
-	var result = await YNet.ynet_connect("http://localhost:8211").connected
-	if !result[1]:
-		printerr("Failed to connect to ynet socket io %s" % result[0])
-		return
-
-  ## If the connection succeeded add the created peer to the multiplayer peer.
-	multiplayer.multiplayer_peer = peer
-	multiplayer.peer_connected.connect(on_peer_connected)
-	multiplayer.peer_disconnected.connect(on_peer_disconnected)
-
-  ## At this point you can now create a room. After requesting a room creation you need to await for the result of the room creation, if result[1] is false then the room creation failed. result[0] is an error String.
-	result = YNet.create_room().room_connection_result
-	if !result[1]:
-		printerr("Failed to create room %s" % result[0])
-		multiplayer.peer_connected.disconnect(on_peer_connected)
-		multiplayer.multiplayer_peer = null
-		return
-
-  ## If the room creation succeeded you can now get the room id without the protocool with `YNet.room_id_without_protocol` This is what you show the player so they can give their friends. The real room id on socket.io includes the protocol after it.
-	print_to_screen("Room created: "+YNet.room_id_without_protocol)
-```
-
-## Connecting to a room.
-
-The first part is the same as the way to Host a game. It only changes once you are connected to Socket.io, then instead of creating a room you join a room.
-
+Here's a simple example of hosting and connecting:
 
 ```gdscript
-func _on_join_pressed() -> void:
-	var peer:MultiplayerPeer = YNetMultiplayerPeer.new()
-	YNet.transport = YNetSocketIO.new()
-	print("Await for connection attempt")
-  ## First step is to connect to the socket.io server. After calling YNet.ynet_connect you need to await for the socket.io connection to happen. If result[1] is false then the connection failed. result[0] is an error String.
-	var result = await YNet.ynet_connect("http://localhost:8211").connected
-	if !result[1]:
-		printerr("Failed to connect to ynet socket io %s" % result[0])
-		return
+extends Node3D
 
-  ## If the connection succeeded add the created peer to the multiplayer peer.
-	multiplayer.multiplayer_peer = peer
-	multiplayer.peer_connected.connect(on_peer_connected)
-	multiplayer.peer_disconnected.connect(on_peer_disconnected)
+static var client:bool = false
+static var host:bool = false
 
-  ## At this point you can now join a room. With YNet.join_or_create_room it will try to join the room,
-  ## but if it can't find the room to join it will create a room with the provided room id. This can be used to create rooms with specific room ids.
-  ## If you pass an empty string it will attempt to join any valid room in the server, or create a new one if it can't find any.
-  ## After calling join_or_create_room you need to wait for the result of the join attempt. If result[1] is false then it failed.
-	result = YNet.join_or_create_room(line_edit.text).room_connection_result
-	if !result[1]:
-		printerr("Failed to join room. %s" % result[0])
-		multiplayer.peer_connected.disconnect(on_peer_connected)
-		multiplayer.multiplayer_peer = null
-		return
+func _ready():
+	host = OS.has_feature("host")
+	client = OS.has_feature("client")
+	
+	YNet.server_disconnected.connect(_on_server_disconnected)
+	YNet.peer_connected.connect(_on_peer_joined)
+	YNet.peer_disconnected.connect(_on_peer_left)
+	
+	if host:
+		await get_tree().create_timer(0.1).timeout
+		YNet.connect_to_and_create_room("localhost:7777")
+		if await YNet.connection_result:
+			print("[%d] Connected %s" % [multiplayer.get_unique_id(), YNet.room_id])
+			DisplayServer.clipboard_set_primary(YNet.room_id)
+		else:
+			print("Error hosting: %s" % YNet.get_last_error_message())
+	else:
+		await get_tree().create_timer(1.0).timeout
+		if await YNet.connect_to_and_join_room("localhost:7777", DisplayServer.clipboard_get_primary()).connection_result:
+			print("[%d] Connected %s" % [multiplayer.get_unique_id(), YNet.room_id])
+		else:
+			print("Error joining: %s" % YNet.get_last_error_message())
 
-  ## The connection should now be established.
+	YNet.register_for_yrpc(self, 1)
+	await get_tree().create_timer(1.3).timeout
+	YNet.send_yrpc(receive_rpc_on_any_peer, "Hi folks! I'm %d" % multiplayer.get_unique_id())
+
+@rpc("any_peer", "call_remote")
+func receive_rpc_on_any_peer(message_sent):
+	print("[%d] Received rpc with message [%s]" % [multiplayer.get_unique_id(), message_sent])
+
+func _on_peer_joined(peer):
+	print("[%d] Peer joined %s" % [multiplayer.get_unique_id(), peer])
+
+func _on_peer_left(peer):
+	print("[%d] Peer left %s" % [multiplayer.get_unique_id(), peer])
+
+func _on_server_disconnected():
+	print("[%d] Server disconnected" % multiplayer.get_unique_id())
 ```
+
+## Transport Protocols
+
+YNet supports multiple transport protocols:
+
+### ENet Transport (Default)
+- **Pros**: Low latency, UDP-based, good for real-time games
+- **Cons**: Doesn't work for web-games.
+- **Best for**: Low-latency requirements
+
+### Socket.IO Transport
+- **Pros**: Works through firewalls, WebSocket-based, good for web games
+- **Cons**: Higher latency, requires a Socket.IO server
+- **Best for**: Web games, games that need to work through firewalls
+
+## Connection Methods
+
+### Simple Connection Methods
+```gdscript
+# Connect and create a room
+var result:bool = await YNet.connect_to_and_create_room("localhost:7777").connection_result
+
+# Connect and join a specific room
+var result:bool = await YNet.connect_to_and_join_room("localhost:7777", "ROOM123").connection_result
+
+# Connect and join with password
+var result:bool = await YNet.connect_to_and_join_room_with_password("localhost:7777", "ROOM123", "password").connection_result
+
+# Connect without joining a room
+var result:bool = await YNet.connect_to("localhost:7777").connection_result
+```
+
+### Advanced Connection Methods
+```gdscript
+# Specify transport type
+YNet.connect_to_and_create_room("localhost:7777", YNet.TRANSPORT_TYPE_ENET)
+YNet.connect_to_and_create_room("ws://localhost:7777", YNet.TRANSPORT_TYPE_SOCKETIO)
+
+# Manual connection flow
+YNet.connect_to("localhost:7777")
+await YNet.connection_result
+YNet.create_room()
+await YNet.room_created
+```
+
+
+### Socket.IO Server
+The Socket.IO server is made in node.js and can be found in the server folder. It's the `server.js` file.
 
 ## YNet Multiplayer Spawner
 
@@ -132,6 +167,7 @@ void YNet.despawn_node(node: Node)
 ```
 
 ## YNet RPCs
+
 ### RPCs in Networked Nodes
 
 RPCs can be sent from Networked Nodes or children of Networked Nodes. If sending from a child node you have to make sure that the relative nodepath to the parent networked node is the same across the network.
@@ -140,10 +176,6 @@ To call an RPC use this method:
 ```gdscript
 Error YNet.send_yrpc(method: Callable, ...) 
 ```
-Or if you would like to also run the RPC locally besides calling it remotely:
-```gdscript
-Error YNet.send_and_receive_yrpc(method: Callable, ...) vararg
-```
 
 Here's an example:
 ```gdscript
@@ -151,11 +183,30 @@ func example_send_rpc():
 	YNet.send_yrpc(receive_chat_message, "This is a message", 5)
 
 ## This will be called remotely with the values "This is a message" and 5:
+@rpc("any_peer","call_local")
 func receive_chat_message(message:String, number:int):
 	print(number,message)
 ```
 
+### Buffered RPCs
+
+Buffered RPCs are automatically sent to new players when they join the room. They persist until explicitly removed.
+
+```gdscript
+# Buffered RPCs are automatically detected by method names ending with "_buffered"
+@rpc("any_peer", "call_remote")
+func set_player_name_buffered(name: String):
+	player_name = name
+
+# Remove a buffered RPC
+YNet.remove_buffered_yrpc(set_player_name_buffered)
+
+# Remove all buffered RPCs for a specific network ID
+YNet.remove_buffered_yrpc_method(network_id, "")
+```
+
 ## YNet Properties Synchronization
+
 ### Automatically Synchronizing variables in Networked Nodes:
 
 To register variables for automatically serialization use this method: (Only variables in the Root networked object can be synchronized with this method at the moment)
@@ -175,9 +226,26 @@ All SyncProperties get automatically synced on Spawn on clients. They also get a
 To control the interval for the automatic synchronizing you can modify these values in the project settings:
 ![image](https://github.com/DanielSnd/YarnNet/assets/9072324/b138249a-abbb-4693-bc93-1ce605aa4968)
 
+## YSnapSyncer3D
 
-# Demo Project
+YSnapSyncer3D provides smooth position and rotation synchronization with interpolation and extrapolation. It's perfect for character movement and physics objects.
 
-This is a small demo project showing how to connect, create and join rooms. It also includes a multiplayer spawner and multiplayer synchronizer to show the custom MultiplayerPeer working. The spawned "players" are actually texts with the socket.io id for easier debugging.
+## Debugging
+
+YNet includes comprehensive debugging options:
+
+```gdscript
+# Set debugging level (0-4)
+# 0: None
+# 1: Minimal
+# 2: Most messages
+# 3: Messages and ping
+# 4: All
+YNet.debugging = YNet.DebuggingLevel.ALL
+```
+
+## Demo Project (Outdated)
+
+This is a small demo project showing how to connect, create and join rooms. It also includes a multiplayer spawner and multiplayer synchronizer to show the custom MultiplayerPeer working. The spawned "players" are actually texts with the socket.io id for easier debugging. (Outdated)
 
 [YarnNetDemoProject.zip](https://github.com/DanielSnd/YarnNet/files/15455894/YarnNetDemoProject.zip)

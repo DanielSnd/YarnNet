@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <class name="YNetPropertySyncer" inherits="RefCounted" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
 	<brief_description>
-	A class that handles property synchronization between networked peers.
+		A class that handles property synchronization between networked peers.
 	</brief_description>
 	<description>
-	YNetPropertySyncer is responsible for synchronizing properties between networked peers in YNet. It automatically detects changes in properties and sends updates to other peers.
+		YNetPropertySyncer is responsible for synchronizing properties between networked peers in YNet. It automatically detects changes in properties and sends updates to other peers.
 
 	This class is used internally by YNet when you register properties for synchronization. You typically won't need to interact with it directly, but understanding its role can be helpful for advanced usage.
 

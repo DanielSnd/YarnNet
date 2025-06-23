@@ -11,5 +11,8 @@ def get_doc_classes():
 	return [
 		"YNet",
 		"YNetPropertySyncer",
-		"YNetMultiplayerPeer"
+		"YNetMultiplayerPeer",
+		"YSnapSyncer3D",
+		"YNetSocketIO",
+		"YNetEnet",
 	]

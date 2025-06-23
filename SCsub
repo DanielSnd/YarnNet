@@ -3,8 +3,9 @@
 Import('env')
 
 module_env = env.Clone()
-if ARGUMENTS.get('host_migration', 'false') == 'yes':
+if ARGUMENTS.get('host_migration', 'no') == 'yes':
     module_env.Append(CPPDEFINES=['HOST_MIGRATION'])
 
 module_env.Append(CPPDEFINES=['YNET'])
+
 module_env.add_source_files(env.modules_sources, "*.cpp")

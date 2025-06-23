@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="YSnapSyncer3D" inherits="Node" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		A helper node for smooth 3D position and rotation synchronization in multiplayer, with interpolation, extrapolation, and error correction.
+	</brief_description>
+	<description>
+		YSnapSyncer3D is designed to make networked movement and transform synchronization smooth and visually appealing. It maintains a buffer of received snapshots (position, rotation, velocity, etc.) and interpolates/extrapolates between them, correcting for network jitter and drift.
+
+		- Add snapshots as you receive network updates (position, rotation, velocity, etc.)
+		- Call <method>apply_to_node</method> each frame to update a Node3D's transform
+		- Supports error correction, time drift correction, and disabling extrapolation
+
+		Typical usage:
+		[codeblock]
+		@onready var snap_syncer = $YSnapSyncer3D
+		var last_time_sent_snapshot = 0.0
+		
+		func _process(delta):
+			if is_multiplayer_authority():
+				if last_time_sent_snapshot &gt; 0.2:
+					receive_update.rpc(last_time_sent_snapshot, self.global_position, self.global_rotation)
+					last_time_sent_snapshot = 0.0
+				else:
+					last_time_sent_snapshot += delta
+			else:
+				snap_syncer.update_playback(delta)
+				snap_syncer.apply_to_node(self)
+
+		# Receiving a network update:
+		@rpc("authority", "call_remote")
+		func receive_update(interpolation_time, pos, rot):
+			snap_syncer.add_snapshot(interpolation_time, pos, rot)
+		[/codeblock]
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="add_snapshot">
+			<return type="void" />
+			<param index="0" name="interpolation_time" type="float" />
+			<param index="1" name="position" type="Vector3" />
+			<param index="2" name="rotation" type="Quaternion" />
+			<param index="3" name="extra_data" type="Variant" />
+			<description>
+				Adds a new snapshot to the buffer for interpolation. Use this for basic position/rotation sync.
+			</description>
+		</method>
+		<method name="add_velocity_snapshot">
+			<return type="void" />
+			<param index="0" name="interpolation_time" type="float" />
+			<param index="1" name="position" type="Vector3" />
+			<param index="2" name="velocity" type="Vector3" />
+			<param index="3" name="rotation" type="Quaternion" />
+			<param index="4" name="angular_velocity" type="Vector3" />
+			<param index="5" name="extra_data" type="Variant" />
+			<description>
+				Adds a new snapshot with velocity and angular velocity for advanced smoothing (e.g. physics objects).
+			</description>
+		</method>
+		<method name="apply_to_node">
+			<return type="void" />
+			<param index="0" name="node" type="Node3D" />
+			<description>
+				Applies the current interpolated position and rotation to the given Node3D.
+			</description>
+		</method>
+		<method name="get_angular_velocity" qualifiers="const">
+			<return type="Vector3" />
+			<description>
+				Returns the current interpolated angular velocity.
+			</description>
+		</method>
+		<method name="get_current_snapshot_dict" qualifiers="const">
+			<return type="Dictionary" />
+			<description>
+				Returns the current interpolated snapshot as a dictionary.
+			</description>
+		</method>
+		<method name="get_extra_data" qualifiers="const">
+			<return type="Variant" />
+			<description>
+				Returns the extra data from the current snapshot.
+			</description>
+		</method>
+		<method name="get_extrapolation_position_drift" qualifiers="const">
+			<return type="Vector3" />
+			<description>
+				Returns the current position correction offset (for error correction diagnostics).
+			</description>
+		</method>
+		<method name="get_extrapolation_rotation_drift" qualifiers="const">
+			<return type="Quaternion" />
+			<description>
+				Returns the current rotation correction offset (for error correction diagnostics).
+			</description>
+		</method>
+		<method name="get_last_snapshot_dict" qualifiers="const">
+			<return type="Dictionary" />
+			<description>
+				Returns the last received snapshot as a dictionary.
+			</description>
+		</method>
+		<method name="get_playback_time" qualifiers="const">
+			<return type="float" />
+			<description>
+				Returns the current time within the buffer (for diagnostics).
+			</description>
+		</method>
+		<method name="get_position" qualifiers="const">
+			<return type="Vector3" />
+			<description>
+				Returns the current interpolated position.
+			</description>
+		</method>
+		<method name="get_rotation" qualifiers="const">
+			<return type="Quaternion" />
+			<description>
+				Returns the current interpolated rotation.
+			</description>
+		</method>
+		<method name="get_time_drift" qualifiers="const">
+			<return type="float" />
+			<description>
+				Returns the current time drift (difference between expected and actual buffer time).
+			</description>
+		</method>
+		<method name="get_velocity" qualifiers="const">
+			<return type="Vector3" />
+			<description>
+				Returns the current interpolated velocity.
+			</description>
+		</method>
+		<method name="has_snapshots" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Returns true if there are any snapshots in the buffer.
+			</description>
+		</method>
+		<method name="is_extrapolating" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Returns true if the syncer is currently extrapolating (predicting beyond last received snapshot).
+			</description>
+		</method>
+		<method name="update_playback">
+			<return type="void" />
+			<param index="0" name="delta_time" type="float" />
+			<description>
+				Updates the internal buffer/playback state. Called automatically each frame.
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="disable_extrapolation" type="bool" setter="set_disable_extrapolation" getter="get_disable_extrapolation" default="false">
+			If true, disables extrapolation (prediction) when no new snapshots are available.
+		</member>
+		<member name="error_correction_speed" type="float" setter="set_error_correction_speed" getter="get_error_correction_speed" default="10.0">
+			How quickly to correct for prediction errors (higher = faster correction).
+		</member>
+		<member name="interpolation_latency" type="float" setter="set_interpolation_latency" getter="get_interpolation_latency" default="0.12">
+			How much time (in seconds) to buffer for smooth interpolation.
+		</member>
+		<member name="time_correction_speed" type="float" setter="set_time_correction_speed" getter="get_time_correction_speed" default="3.0">
+			How quickly to correct for time drift between client and server.
+		</member>
+	</members>
+</class>

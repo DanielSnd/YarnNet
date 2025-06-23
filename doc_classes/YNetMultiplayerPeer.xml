@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <class name="YNetMultiplayerPeer" inherits="MultiplayerPeer" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
 	<brief_description>
-	A MultiplayerPeer implementation that integrates with YNet's networking system.
+		A MultiplayerPeer implementation that integrates with YNet's networking system.
 	</brief_description>
 	<description>
-	YNetMultiplayerPeer is the underlying networking implementation used by YNet. It handles the low-level networking operations and integrates with Godot's MultiplayerAPI.
+		YNetMultiplayerPeer is the underlying networking implementation used by YNet. It handles the low-level networking operations and integrates with Godot's MultiplayerAPI.
 
 	This class is primarily used internally by YNet and you typically won't need to interact with it directly. However, understanding its role can be helpful for advanced usage.
 
