@@ -7,7 +7,7 @@
 		YSnapSyncer3D is designed to make networked movement and transform synchronization smooth and visually appealing. It maintains a buffer of received snapshots (position, rotation, velocity, etc.) and interpolates/extrapolates between them, correcting for network jitter and drift.
 
 		- Add snapshots as you receive network updates (position, rotation, velocity, etc.)
-		- Call <method>apply_to_node</method> each frame to update a Node3D's transform
+		- Call [method apply_to_node] each frame to update a Node3D's transform
 		- Supports error correction, time drift correction, and disabling extrapolation
 
 		Typical usage:
