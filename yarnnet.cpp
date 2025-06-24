@@ -2134,6 +2134,11 @@ void YNet::_parse_rpc_config(const Dictionary &p_config, bool p_for_node, YNetRP
 void YNet::cleanup_network_state() {
     // Clear all spawned nodes
     clear_all_spawned_network_nodes();
+
+    pending_create_room_on_connect = false;
+    pending_join_room_code_on_connect = "";
+    pending_join_room_password_on_connect = "";
+    pending_join_room_on_connect = false;
     
     // Clear all property syncers
     networked_property_syncers.clear();
