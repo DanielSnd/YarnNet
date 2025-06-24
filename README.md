@@ -131,6 +131,9 @@ await YNet.room_created
 ### Socket.IO Server
 The Socket.IO server is made in node.js and can be found in the server folder. It's the `server.js` file.
 
+### ENet Server
+The ENet server is made in C++ and can be found in this separate repository: https://github.com/DanielSnd/ynetserver-enet
+
 ## YNet Multiplayer Spawner
 
 ### Defining spawnable scenes:
