@@ -2197,8 +2197,6 @@ bool YNet::get_node_cleanup_with_owner(Node* p_node) const {
 YNet* YNet::connect_to(const String &p_address, const TransportType p_transport_type) {
     pending_create_room_on_connect = false;
     pending_join_room_on_connect = false;
-    pending_join_room_code_on_connect = "";
-    pending_join_room_password_on_connect = "";
     if (!transport.is_valid()) {
         switch (p_transport_type) {
             case TRANSPORT_TYPE_ENET:
@@ -2226,9 +2224,6 @@ YNet* YNet::connect_to(const String &p_address, const TransportType p_transport_
 YNet* YNet::connect_to_and_create_room(const String &p_address, const TransportType p_transport_type) {
     connect_to(p_address, p_transport_type);
     pending_create_room_on_connect = true;
-    pending_join_room_code_on_connect = "";
-    pending_join_room_password_on_connect = "";
-    pending_join_room_on_connect = false;
     return this;
 }
 
@@ -2238,7 +2233,6 @@ YNet* YNet::connect_to_and_join_room(const String &p_address, const String &p_ro
 
 YNet* YNet::connect_to_and_join_room_with_password(const String &p_address, const String &p_room_code, const String &p_password, const TransportType p_transport_type) {
     connect_to(p_address, p_transport_type);
-    pending_create_room_on_connect = false;
     pending_join_room_code_on_connect = p_room_code;
     pending_join_room_password_on_connect = p_password;
     pending_join_room_on_connect = true;
@@ -2253,12 +2247,8 @@ void YNet::transport_connected_successfully() {
 
     if (pending_create_room_on_connect) {
         create_room_with_code(pending_join_room_code_on_connect, pending_join_room_password_on_connect);
-        pending_create_room_on_connect = false;
     } else if (pending_join_room_on_connect) {
         join_room(pending_join_room_code_on_connect, pending_join_room_password_on_connect);
-        pending_join_room_code_on_connect = "";
-        pending_join_room_password_on_connect = "";
-        pending_join_room_on_connect = false;
     } else {
         emit_signal(SNAME("connection_result"),true);
     }
