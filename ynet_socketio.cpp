@@ -532,8 +532,7 @@ bool YNetSocketIO::process_packets() {
 
 
 bool YNetSocketIO::engineio_decode_packet(const uint8_t *packet, int len) {
-    String packet_payload;
-    packet_payload.parse_utf8((const char *)packet, len);
+    String packet_payload = String::utf8((const char *)packet, len);
     auto packetType = packet_payload.substr(0,1).to_int();
     packet_payload = packet_payload.substr(1);
     switch (packetType) {

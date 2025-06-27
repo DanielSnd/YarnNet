@@ -2047,7 +2047,7 @@ YNet::YNetRPCConfig YNet::_get_rpc_config(Node *p_node, const StringName &p_meth
         YNetRPCConfigCache cache;
         
         // Parse node config
-        Dictionary node_config = p_node->get_rpc_config();
+        Dictionary node_config = p_node->get_node_rpc_config();
         _parse_rpc_config(node_config, true, cache);
         
         // Parse script config if it exists
