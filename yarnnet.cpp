@@ -2200,6 +2200,10 @@ bool YNet::get_node_cleanup_with_owner(Node* p_node) const {
 }
 
 YNet* YNet::connect_to(const String &p_address, const TransportType p_transport_type) {
+    if (transport.is_valid()) {
+        transport->transport_disconnect();
+        transport = Ref<YNetTransport>();
+    }
     pending_create_room_on_connect = false;
     pending_join_room_on_connect = false;
     if (!transport.is_valid()) {
